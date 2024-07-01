@@ -48,3 +48,19 @@ helps['acr supply-chain workflow delete'] = """
         - name: Delete acr supply chain workflow and associated configuration files
           text: az acr supply-chain workflow delete -r $MyRegistry -g $MyResourceGroup --type continuouspatchv1
 """
+
+helps['acr supply-chain workflow cancel-run'] = """
+    type: command
+    short-summary: Cancel currently running supply chain workflow.
+    examples:
+        - name: Cancel currently running acr supply chain workflow scans/patch
+          text: az acr supply-chain workflow cancel-run -r $MyRegistry -g $MyResourceGroup --type continuouspatchv1
+"""
+
+helps['acr supply-chain workflow track-status'] = """
+    type: command
+    short-summary: Track status of acr supply chain workflow tasks.
+    examples:
+        - name: Track all acr supply chain workflow tasks based on the status provided
+          text: az acr supply-chain workflow track-status -r $MyRegistry -g $MyResourceGroup --type continuouspatchv1 --status Failed
+"""
