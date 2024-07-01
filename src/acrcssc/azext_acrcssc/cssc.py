@@ -9,7 +9,9 @@ from .helper._taskoperations import (
     create_update_continuous_patch_v1,
     delete_continuous_patch_v1,
     list_continuous_patch_v1,
-    acr_cssc_dry_run
+    acr_cssc_dry_run,
+    cancel_continuous_patch_runs,
+    track_scan_progress
 )
 from ._validators import (
     validate_inputs,
@@ -126,3 +128,19 @@ def show_acrcssc(cmd,
 
     validate_task_type(workflow_type)
     return list_continuous_patch_v1(cmd, registry)
+
+
+def cancel_runs(cmd,
+                   resource_group_name,
+                   registry_name,
+                   workflow_type
+                   ):
+    '''cancel all running scans in continuous patch in the registry.'''
+    logger.debug('Entering cancel_runs with parameters:%s %s %s', resource_group_name, registry_name, workflow_type)
+    validate_task_type(workflow_type)
+    cancel_continuous_patch_runs(cmd, resource_group_name, registry_name)
+
+def track_scan_status(cmd, registry_name, resource_group_name, status, workflow_type):
+    '''track in continuous patch in the registry.'''
+    logger.debug('Entering track_scan_status with parameters:%s %s %s', resource_group_name, registry_name, workflow_type)
+    return track_scan_progress(cmd, resource_group_name, registry_name, status)

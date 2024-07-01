@@ -25,6 +25,8 @@ from ._constants import (
     TASK_RUN_STATUS_SUCCESS,
     TASK_RUN_STATUS_RUNNING,
     CONTINUOUS_PATCH_WORKFLOW,
+    CONTINUOSPATCH_TASK_PATCHIMAGE_NAME,
+    CONTINUOSPATCH_TASK_SCANIMAGE_NAME,
     DESCRIPTION)
 from azure.cli.core.azclierror import AzCLIError
 from azure.cli.core.commands import LongRunningOperation
@@ -195,6 +197,26 @@ def acr_cssc_dry_run(cmd, registry, config_file_path):
         return generate_logs(cmd, acr_run_client, run_id, registry.name, resource_group_name)
     finally:
         delete_temporary_dry_run_file(tmp_folder)
+    
+
+def cancel_continuous_patch_runs(cmd, resource_group_name, registry_name):
+    logger.debug("Entering cancel_continuous_patch_v1")
+    acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
+    list_filter_str = f"Status eq 'Running' and (TaskName eq '{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}')"
+    top=1000
+    running_tasks = acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
+    for task in running_tasks:
+        logger.warning("Sending request to cancel task %s", task.name)
+        acr_task_run_client.begin_cancel(resource_group_name, registry_name, task.name)
+    logger.warning("All active running patching tasks with have been cancelled.")
+
+
+def track_scan_progress(cmd, resource_group_name, registry_name, status):
+    logger.debug("Entering track_scan_progress")
+    acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
+    list_filter_str = f"Status eq '{status}' and (TaskName eq '{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}')"
+    top=1000
+    return acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
 
 
 def _trigger_task_run(cmd, registry, resource_group, task_name):
