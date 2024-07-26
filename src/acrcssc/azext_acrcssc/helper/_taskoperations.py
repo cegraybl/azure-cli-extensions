@@ -218,7 +218,7 @@ def cancel_continuous_patch_runs(cmd, resource_group_name, registry_name):
     logger.debug("Entering cancel_continuous_patch_v1")
     acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
     list_filter_str = f"Status eq 'Running' and (TaskName eq '{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}')"
-    top=1000
+    top = 1000
     running_tasks = acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
     for task in running_tasks:
         logger.warning("Sending request to cancel task %s", task.name)

@@ -121,14 +121,14 @@ def show_acrcssc(cmd,
 
 
 def cancel_runs(cmd,
-                   resource_group_name,
-                   registry_name,
-                   workflow_type
-                   ):
+                resource_group_name,
+                registry_name,
+                workflow_type):
     '''cancel all running scans in continuous patch in the registry.'''
     logger.debug('Entering cancel_runs with parameters:%s %s %s', resource_group_name, registry_name, workflow_type)
     validate_task_type(workflow_type)
     cancel_continuous_patch_runs(cmd, resource_group_name, registry_name)
+
 
 def track_scan_status(cmd, registry_name, resource_group_name, status, workflow_type):
     '''track in continuous patch in the registry.'''
