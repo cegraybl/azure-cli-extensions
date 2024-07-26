@@ -15,6 +15,13 @@ class CSSCTaskTypes(Enum):
     # TrivyV1 = "TrivyV1"
 
 
+class CSSCTaskStatus(Enum):
+    """Enum for the task status."""
+    Failed = 'Failed'
+    Succeeded = 'Succeeded'
+    Running = 'Running'
+
+
 # General Constants
 CSSC_TAGS = "acr-cssc"
 ACR_API_VERSION_2023_01_01_PREVIEW = "2023-01-01-preview"

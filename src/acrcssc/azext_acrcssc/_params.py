@@ -12,7 +12,7 @@ from azure.cli.command_modules.acr._validators import validate_registry_name
 
 
 def load_arguments(self: AzCommandsLoader, _):
-    from .helper._constants import CSSCTaskTypes
+    from .helper._constants import CSSCTaskTypes, CSSCTaskStatus
 
     with self.argument_context("acr supply-chain workflow") as c:
         c.argument('resource_group', options_list=['--resource-group', '-g'], help='Name of resource group.You can configure the default group using `az configure --defaults group=<name>`', completer=get_resource_name_completion_list(REGISTRY_RESOURCE_TYPE), configured_default='acr', validator=validate_registry_name)
@@ -32,4 +32,4 @@ def load_arguments(self: AzCommandsLoader, _):
         c.argument("dryrun", options_list=["--dry-run"], help="Use this flag to see the qualifying repositories and tags that would be affected by the workflow. Default value: false. 'config' parameter is mandatory to provide with dry-run", arg_type=get_three_state_flag(), required=False)
     
     with self.argument_context("acr supply-chain workflow track-status") as c:
-        c.argument("status", options_list=["--status"], help="Status to filter the supply-chain workflow tasks. Valid values: Failed, Succeeded, Running.", required=True)
+        c.argument("status", arg_type=get_enum_type(CSSCTaskStatus), options_list=["--status"], help="Status to filter the supply-chain workflow tasks.", required=True)
