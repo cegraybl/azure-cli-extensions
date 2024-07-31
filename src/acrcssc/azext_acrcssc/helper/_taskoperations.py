@@ -212,12 +212,12 @@ def acr_cssc_dry_run(cmd, registry, config_file_path, is_create=True):
         return generate_logs(cmd, acr_run_client, run_id, registry.name, resource_group_name)
     finally:
         delete_temporary_dry_run_file(tmp_folder)
-    
+
 
 def cancel_continuous_patch_runs(cmd, resource_group_name, registry_name):
     logger.debug("Entering cancel_continuous_patch_v1")
     acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
-    list_filter_str = f"Status eq 'Running' and (TaskName eq '{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}')"
+    list_filter_str = f"(contains(['Running', 'Queued', 'Started'], Status)) and (contains(['{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}', '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}'], TaskName))"
     top = 1000
     running_tasks = acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
     for task in running_tasks:
@@ -229,8 +229,8 @@ def cancel_continuous_patch_runs(cmd, resource_group_name, registry_name):
 def track_scan_progress(cmd, resource_group_name, registry_name, status):
     logger.debug("Entering track_scan_progress")
     acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
-    list_filter_str = f"Status eq '{status}' and (TaskName eq '{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}' or TaskName eq '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}')"
-    top=1000
+    list_filter_str = f"Status eq '{status}' and (contains(['{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}', '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}'], TaskName))"
+    top = 1000
     return acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
 
 
