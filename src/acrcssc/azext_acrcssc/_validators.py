@@ -14,6 +14,8 @@ from .helper._constants import CSSCTaskTypes, ERROR_MESSAGE_INVALID_TASK, RECOMM
 from azure.mgmt.core.tools import (parse_resource_id)
 from azure.cli.core.azclierror import InvalidArgumentValueError
 from ._client_factory import cf_acr_tasks
+from .helper._utility import get_task
+
 logger = get_logger(__name__)
 
 
@@ -57,11 +59,9 @@ def check_continuous_task_exists(cmd, registry):
 
 def _check_task_exists(cmd, registry, task_name=""):
     acrtask_client = cf_acr_tasks(cmd.cli_ctx)
-    resourceid = parse_resource_id(registry.id)
-    resource_group = resourceid[RESOURCE_GROUP]
 
     try:
-        task = acrtask_client.get(resource_group, registry.name, task_name)
+        task = get_task(cmd, registry, task_name, acrtask_client)
     except Exception as exception:
         logger.debug("Failed to find task %s from registry %s : %s", task_name, registry.name, exception)
         return False

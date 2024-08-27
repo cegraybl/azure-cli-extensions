@@ -21,27 +21,21 @@ from ._constants import (
     TMP_DRY_RUN_FILE_NAME,
     CONTINUOUS_PATCHING_WORKFLOW_NAME,
     CSSC_WORKFLOW_POLICY_REPOSITORY,
-    TASK_RUN_STATUS_FAILED,
-    TASK_RUN_STATUS_SUCCESS,
-    TASK_RUN_STATUS_RUNNING,
     CONTINUOUS_PATCH_WORKFLOW,
     CONTINUOSPATCH_TASK_PATCHIMAGE_NAME,
     CONTINUOSPATCH_TASK_SCANIMAGE_NAME,
     DESCRIPTION)
 from azure.cli.core.azclierror import AzCLIError
 from azure.cli.core.commands import LongRunningOperation
-from azure.cli.command_modules.acr._stream_utils import _get_run_status
-from azure.cli.command_modules.acr._constants import ACR_RUN_DEFAULT_TIMEOUT_IN_SEC
-from azure.cli.core.profiles import ResourceType, get_sdk
-from azure.cli.command_modules.acr._azure_utils import get_blob_info
 from azure.cli.command_modules.acr._utils import prepare_source_location
 from azure.mgmt.core.tools import parse_resource_id
 from azext_acrcssc._client_factory import cf_acr_tasks, cf_authorization, cf_acr_registries_tasks, cf_acr_runs
 from azext_acrcssc.helper._deployment import validate_and_deploy_template
-from azext_acrcssc.helper._ociartifactoperations import create_oci_artifact_continuous_patch, delete_oci_artifact_continuous_patch
+from azext_acrcssc.helper._ociartifactoperations import create_oci_artifact_continuous_patch, get_oci_artifact_continuous_patch, delete_oci_artifact_continuous_patch
 from azext_acrcssc._validators import check_continuous_task_exists
-from msrestazure.azure_exceptions import CloudError
 from ._utility import convert_timespan_to_cron, transform_cron_to_cadence, create_temporary_dry_run_file, delete_temporary_dry_run_file
+from ._workflow_status import WorkflowTaskStatus
+import datetime
 
 logger = get_logger(__name__)
 DEFAULT_CHUNK_SIZE = 1024 * 4
@@ -194,7 +188,7 @@ def acr_cssc_dry_run(cmd, registry, config_file_path):
             run_request=request))
         run_id = queued.run_id
         logger.warning("Performing dry-run check for filter policy using acr task run id: %s", run_id)
-        return generate_logs(cmd, acr_run_client, run_id, registry.name, resource_group_name)
+        return WorkflowTaskStatus.generate_logs(cmd, acr_run_client, run_id, registry.name, resource_group_name)
     finally:
         delete_temporary_dry_run_file(tmp_folder)
 
@@ -217,6 +211,38 @@ def track_scan_progress(cmd, resource_group_name, registry_name, status):
     list_filter_str = f"Status eq '{status}' and (contains(['{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}', '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}'], TaskName))"
     top = 1000
     return acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
+
+
+# don't want to destory existing work, will use this function to fix functionality and then point to the new function if it works
+def track_scan_progress_newer(cmd, resource_group_name, registry, status):
+    logger.debug("Entering track_scan_progress_newer")
+
+    config = get_oci_artifact_continuous_patch(cmd, registry)
+    enabled_images = config.get_enabled_images()
+    return _retrieve_logs_for_image(cmd, registry, resource_group_name, enabled_images, config.cadence)
+
+
+def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, cadence):
+    image_status = []
+    acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
+
+    # get all the tasks executed since the last cadence, add a day to make sure we are not running into and edge case with the date
+    today = datetime.date.today()
+    delta = datetime.timedelta(days=int(cadence) + 1)
+    previous_date = today - delta
+    previous_date_filter = previous_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    list_filter_str = f"TaskName in ('{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}') and createTime ge {previous_date_filter}"
+    # filters found in ACR.BuildRP.DataModels\src\v18_09_GA\RunFilter.cs
+
+    top = 1000
+    # th API returns an iterator, if we want to be able to modify it, we need to convert it to a list
+    taskruns = acr_task_run_client.list(resource_group_name, registry.name, filter=list_filter_str, top=top)
+    taskruns_list = list(taskruns)
+    for image in images:
+        image_status += WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, image, taskruns_list)
+
+    return image_status
 
 
 def _trigger_task_run(cmd, registry, resource_group, task_name):
@@ -407,81 +433,3 @@ def _is_vault_secret(cmd, credential):
     if credential is not None:
         return keyvault_dns.upper() in credential.upper()
     return False
-
-
-def generate_logs(cmd,
-                  client,
-                  run_id,
-                  registry_name,
-                  resource_group_name,
-                  timeout=ACR_RUN_DEFAULT_TIMEOUT_IN_SEC,
-                  ):
-    log_file_sas = None
-    error_msg = "Could not get logs for ID: {}".format(run_id)
-    try:
-        response = client.get_log_sas_url(
-            resource_group_name=resource_group_name,
-            registry_name=registry_name,
-            run_id=run_id)
-        log_file_sas = response.log_link
-    except (AttributeError, CloudError) as e:
-        logger.debug("%s Exception: %s", error_msg, e)
-        raise AzCLIError(error_msg)
-
-    account_name, endpoint_suffix, container_name, blob_name, sas_token = get_blob_info(
-        log_file_sas)
-    AppendBlobService = get_sdk(cmd.cli_ctx, ResourceType.DATA_STORAGE, 'blob#AppendBlobService')
-    if not timeout:
-        timeout = ACR_RUN_DEFAULT_TIMEOUT_IN_SEC
-
-    run_status = TASK_RUN_STATUS_RUNNING
-    while _evaluate_task_run_nonterminal_state(run_status):
-        run_status = _get_run_status(client, resource_group_name, registry_name, run_id)
-        if _evaluate_task_run_nonterminal_state(run_status):
-            logger.debug("Waiting for the task run to complete. Current status: %s", run_status)
-            time.sleep(2)
-
-    _download_logs(AppendBlobService(
-        account_name=account_name,
-        sas_token=sas_token,
-        endpoint_suffix=endpoint_suffix),
-        container_name,
-        blob_name)
-
-
-def _evaluate_task_run_nonterminal_state(run_status):
-    return run_status != TASK_RUN_STATUS_SUCCESS and run_status != TASK_RUN_STATUS_FAILED
-
-
-def _get_run_status(client, resource_group_name, registry_name, run_id):
-    try:
-        response = client.get(resource_group_name, registry_name, run_id)
-        return response.status
-    except (AttributeError, CloudError):
-        return None
-
-
-def _download_logs(blob_service,
-                   container_name,
-                   blob_name):
-    blob_text = blob_service.get_blob_to_text(
-        container_name=container_name,
-        blob_name=blob_name)
-    _remove_internal_acr_statements(blob_text.content)
-
-
-def _remove_internal_acr_statements(blob_content):
-    lines = blob_content.split("\n")
-    starting_identifier = "DRY RUN mode enabled"
-    terminating_identifier = "Total matches found"
-    print_line = False
-
-    for line in lines:
-        if line.startswith(starting_identifier):
-            print_line = True
-        elif line.startswith(terminating_identifier):
-            print(line)
-            print_line = False
-
-        if print_line:
-            print(line)
