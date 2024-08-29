@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 from datetime import ( datetime,timezone)
 from ..._validators import (
-    _validate_cadence, check_continuous_task_exists, validate_continuouspatch_config_v1
+    _validate_schedule, check_continuous_task_exists, validate_continuouspatch_config_v1
 )
 
 from azure.cli.core.azclierror import AzCLIError, InvalidArgumentValueError
@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 class AcrCsscCommandsTests(unittest.TestCase):
 
-    def test_validate_cadence_valid(self):
+    def test_validate_schedule_valid(self):
         test_cases = [
             ('1d' ),
             ('5d'),
@@ -28,13 +28,13 @@ class AcrCsscCommandsTests(unittest.TestCase):
 
         for timespan in test_cases:
             with self.subTest(timespan=timespan):
-               _validate_cadence(timespan)
+               _validate_schedule(timespan)
     
-    def test_validate_cadence_invalid(self):
+    def test_validate_schedule_invalid(self):
         test_cases = [('df'),('12'),('dd'),('41d'), ('21dd')]
 
         for timespan in test_cases:
-            self.assertRaises(InvalidArgumentValueError, _validate_cadence, timespan)
+            self.assertRaises(InvalidArgumentValueError, _validate_schedule, timespan)
 
 
     @patch('azext_acrcssc._validators.cf_acr_tasks')

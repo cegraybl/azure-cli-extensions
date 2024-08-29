@@ -39,7 +39,7 @@ CONTINUOUSPATCH_TASK_PATCHIMAGE_DESCRIPTION = "This task will patch the OS vulne
 CONTINUOSPATCH_TASK_SCANIMAGE_NAME = "cssc-scan-image"
 CONTINUOUSPATCH_TASK_SCANIMAGE_DESCRIPTION = f"This task will perform vulnerability OS scan on a given image using Trivy. If there are any vulnerabilities found, it will trigger the patching task using {CONTINUOSPATCH_TASK_PATCHIMAGE_NAME} task."
 CONTINUOSPATCH_TASK_SCANREGISTRY_NAME = "cssc-trigger-workflow"
-CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION = f"This task will trigger the coninuous patching workflow based on the cadence set during the creation. It will match the filter repositories set with config parameter and schedule vulnerability scan check using {CONTINUOSPATCH_TASK_SCANIMAGE_NAME} task."
+CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION = f"This task will trigger the coninuous patching workflow based on the schedule set during the creation. It will match the filter repositories set with config parameter and schedule vulnerability scan check using {CONTINUOSPATCH_TASK_SCANIMAGE_NAME} task."
 CONTINUOUS_PATCHING_WORKFLOW_NAME = "continuouspatchv1"
 DESCRIPTION = "Description"
 TASK_RUN_STATUS_FAILED = "Failed"
@@ -65,9 +65,9 @@ CONTINUOUS_PATCH_WORKFLOW = {
 }
 
 ERROR_MESSAGE_INVALID_TASK = "Workflow type is invalid"
-ERROR_MESSAGE_INVALID_TIMESPAN_VALUE = "Cadence value is invalid. "
-ERROR_MESSAGE_INVALID_TIMESPAN_FORMAT = "Cadence format is invalid. "
-RECOMMENDATION_CADENCE = "Cadence must be in the format of <number><unit> where unit is d for days. Example: 1d. Max value for d is 30d."
+ERROR_MESSAGE_INVALID_TIMESPAN_VALUE = "Schedule value is invalid. "
+ERROR_MESSAGE_INVALID_TIMESPAN_FORMAT = "Schedule format is invalid. "
+RECOMMENDATION_SCHEDULE = "Schedule must be in the format of <number><unit> where unit is d for days. Example: 1d. Max value for d is 30d."
 # this dictionary can be expanded to handle more configuration of the tasks regarding continuous patching
 # if this gets out of hand, or more types of tasks are supported, this should be a class on its own
 CONTINUOSPATCH_TASK_DEFINITION = {

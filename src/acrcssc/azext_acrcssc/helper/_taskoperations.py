@@ -41,19 +41,19 @@ from azext_acrcssc.helper._deployment import validate_and_deploy_template
 from azext_acrcssc.helper._ociartifactoperations import create_oci_artifact_continuous_patch, delete_oci_artifact_continuous_patch
 from azext_acrcssc._validators import check_continuous_task_exists, check_continuous_task_config_exists
 from msrestazure.azure_exceptions import CloudError
-from ._utility import convert_timespan_to_cron, transform_cron_to_cadence, create_temporary_dry_run_file, delete_temporary_dry_run_file
+from ._utility import convert_timespan_to_cron, transform_cron_to_schedule, create_temporary_dry_run_file, delete_temporary_dry_run_file
 
 logger = get_logger(__name__)
 DEFAULT_CHUNK_SIZE = 1024 * 4
 
 
-def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, cadence, dryrun, defer_immediate_run, is_create_workflow=True):
+def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule, dryrun, defer_immediate_run, is_create_workflow=True):
     logger.debug(f"Entering continuousPatchV1_creation {cssc_config_file} {dryrun} {defer_immediate_run}")
     resource_group = parse_resource_id(registry.id)[RESOURCE_GROUP]
     schedule_cron_expression = None
-    if cadence is not None:
-        schedule_cron_expression = convert_timespan_to_cron(cadence)
-    logger.debug(f"converted cadence to cron expression: {schedule_cron_expression}")
+    if schedule is not None:
+        schedule_cron_expression = convert_timespan_to_cron(schedule)
+    logger.debug(f"converted schedule to cron expression: {schedule_cron_expression}")
     cssc_tasks_exists = check_continuous_task_exists(cmd, registry)
     if is_create_workflow:
         if cssc_tasks_exists:
@@ -228,7 +228,7 @@ def _create_encoded_task(task_file):
 
 
 def _update_task_schedule(cmd, registry, cron_expression, resource_group_name, dryrun):
-    logger.debug(f"converted cadence to cron_expression: {cron_expression}")
+    logger.debug(f"converted schedule to cron_expression: {cron_expression}")
     acr_task_client = cf_acr_tasks(cmd.cli_ctx)
     taskUpdateParameters = acr_task_client.models.TaskUpdateParameters(
         trigger=acr_task_client.models.TriggerUpdateParameters(
@@ -248,7 +248,7 @@ def _update_task_schedule(cmd, registry, cron_expression, resource_group_name, d
         acr_task_client.begin_update(resource_group_name, registry.name,
                                      CONTINUOSPATCH_TASK_SCANREGISTRY_NAME,
                                      taskUpdateParameters)
-        print("Cadence has been successfully updated.")
+        print("Schedule has been successfully updated.")
     except Exception as exception:
         raise AzCLIError(f"Failed to update the task schedule: {exception}")
 
@@ -316,14 +316,14 @@ def _transform_task_list(tasks):
             "name": task.name,
             "provisioningState": task.provisioning_state,
             "systemData": task.system_data,
-            "cadence": None,
+            "schedule": None,
             "description": CONTINUOUS_PATCH_WORKFLOW[task.name][DESCRIPTION]
         }
 
-        # Extract cadence from trigger.timerTriggers if available
+        # Extract schedule from trigger.timerTriggers if available
         trigger = task.trigger
         if trigger and trigger.timer_triggers:
-            transformed_obj["cadence"] = transform_cron_to_cadence(trigger.timer_triggers[0].schedule)
+            transformed_obj["schedule"] = transform_cron_to_schedule(trigger.timer_triggers[0].schedule)
         transformed.append(transformed_obj)
 
     return transformed

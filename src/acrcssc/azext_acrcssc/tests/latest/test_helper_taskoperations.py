@@ -44,7 +44,7 @@ class TestCreateContinuousPatchV1(unittest.TestCase):
     @mock.patch("azext_acrcssc.helper._taskoperations.parse_resource_id")
     @mock.patch("azext_acrcssc.helper._taskoperations.validate_and_deploy_template")
     @mock.patch("azext_acrcssc.helper._taskoperations._trigger_task_run")
-    def test_update_continuous_patch_v1_cadence_update_should_not_update_config(self, mock_trigger_task_run, mock_validate_and_deploy_template, mock_parse_resource_id, mock_create_oci_artifact_continuous_patch, mock_convert_timespan_to_cron, mock_check_continuoustask_exists, mock_update_task_schedule):
+    def test_update_continuous_patch_v1_schedule_update_should_not_update_config(self, mock_trigger_task_run, mock_validate_and_deploy_template, mock_parse_resource_id, mock_create_oci_artifact_continuous_patch, mock_convert_timespan_to_cron, mock_check_continuoustask_exists, mock_update_task_schedule):
         # Mock the necessary dependencies
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_file_path = temp_file.name
