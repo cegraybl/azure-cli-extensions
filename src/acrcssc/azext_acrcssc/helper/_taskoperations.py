@@ -242,7 +242,8 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, cadence
 
     # get all the tasks executed since the last cadence, add a day to make sure we are not running into and edge case with the date
     today = datetime.date.today()
-    delta = datetime.timedelta(days=int(cadence) + 1)
+    # delta = datetime.timedelta(days=int(cadence) + 1)
+    delta = datetime.timedelta(days=int(cadence)) # use the cadence as is, we are running into issues we are querying too much and take time to filter
     previous_date = today - delta
     previous_date_filter = previous_date.strftime('%Y-%m-%dT%H:%M:%SZ')
 
@@ -253,9 +254,18 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, cadence
     # th API returns an iterator, if we want to be able to modify it, we need to convert it to a list
     taskruns = acr_task_run_client.list(resource_group_name, registry.name, filter=list_filter_str, top=top)
     taskruns_list = list(taskruns)
+
+    ## another way that we might speed things up is, instead of doing n^2 check while matching image to task, is to get all the logs, and start populating with the logs that we have, and use that to match the image to the task, instead than the task to the image
+    ## one more way, get all the logs first (multiple threads), and then match the logs to the images, this way we can get the logs faster, and then match them to the images however we want
+    ## another thing, separate the patch and the scan logs, no need to double the search space just for the hell of it. The scanning task will have info on the patching task (runid it trigerred), so we can use that to match the logs and make it easier
+    start_time = time.time()
+
     for image in images:
         image_status += WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, image, taskruns_list)
 
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print(f"Execution time: {execution_time} seconds / images processed: {len(images)} / tasks filtered: {len(taskruns_list)}")
     return image_status
 
 

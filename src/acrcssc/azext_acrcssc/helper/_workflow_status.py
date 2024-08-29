@@ -17,7 +17,6 @@ from ._constants import (
     RESOURCE_GROUP,
     CSSCTaskTypes)
 from azure.cli.command_modules.acr._constants import ACR_RUN_DEFAULT_TIMEOUT_IN_SEC
-from azure.cli.command_modules.acr._stream_utils import _get_run_status
 from azure.cli.core.profiles import ResourceType, get_sdk
 from azure.cli.command_modules.acr._azure_utils import get_blob_info
 from azure.cli.core.azclierror import AzCLIError
@@ -71,19 +70,23 @@ class WorkflowTaskStatus:
     # task run status from src\ACR.Build.Contracts\src\Status.cs
     @staticmethod
     def _task_status_to_workflow_status(task):
-        if task.status == "succeeded":
-            return WorkflowTaskState.SUCCEEDED
+        if task is None:
+            return WorkflowTaskState.UNKNOWN.value
+        
+        status = task.status.lower()
+        if status == "succeeded":
+            return WorkflowTaskState.SUCCEEDED.value
 
-        if task.status == "running" or task.status == "started":
-            return WorkflowTaskState.RUNNING
+        if status == "running" or status == "started":
+            return WorkflowTaskState.RUNNING.value
 
-        if task.status == "queued":
-            return WorkflowTaskState.QUEUED
+        if status == "queued":
+            return WorkflowTaskState.QUEUED.value
 
-        if task.status == "failed" or task.status == "canceled" or task.status == "error" or task.status == "timeout":
-            return WorkflowTaskState.FAILED
+        if status == "failed" or status == "canceled" or status == "error" or status == "timeout":
+            return WorkflowTaskState.FAILED.value
 
-        return WorkflowTaskState.UNKNOWN
+        return WorkflowTaskState.UNKNOWN.value
 
     def scan_status(self):
         return WorkflowTaskStatus._task_status_to_workflow_status(self.scan_task)
@@ -101,6 +104,25 @@ class WorkflowTaskStatus:
 
         if match:
             return match.group(1)
+        else:
+            # task run 'ds10y' is scanning, but has the patch string, so what the hell?
+            if task_type == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
+                match = re.search(r'Scan, Upload scan report and Schedule Patch for (\S+)', logs)
+            if task_type == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
+                match = re.search(r'Scanning image for vulnerability and patch (\S+)', logs)
+
+        if match:
+            return match.group(1)
+
+        return None
+
+    def _get_patched_image_name_from_tasklog(self):
+        if self.patch_task is None:
+            return None
+
+        match = re.search(r'Patched image pushed to (\S+)', self.patch_logs)
+        if match:
+            return match.group(1)
         return None
 
     @staticmethod
@@ -108,12 +130,7 @@ class WorkflowTaskStatus:
         all_status = {}
 
         for taskrun in taskruns:
-            if hasattr(taskrun, 'task_log_result'):
-                tasklog = taskrun.task_log_result
-            else:
-                tasklog = WorkflowTaskStatus.get_logs_for_taskrun(cmd, taskrun_client, taskrun, registry)
-                taskrun.task_log_result = tasklog
-
+            tasklog = taskrun.task_log_result
             if repository in tasklog:
                 image = WorkflowTaskStatus._get_image_from_tasklog(tasklog, taskrun.task)
                 if all_status.get(image) is None:
@@ -125,7 +142,7 @@ class WorkflowTaskStatus:
                     all_status[image].scan_task = latest_run
                     all_status[image].scan_logs = latest_log
                 elif taskrun.task == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
-                    latest_run = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
+                    latest_run, latest_log = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
                     all_status[image].patch_task = latest_run
                     all_status[image].patch_logs = latest_log
 
@@ -138,31 +155,46 @@ class WorkflowTaskStatus:
         if that_task is None:
             return (this_task, this_log)
         return (this_task, this_log) if this_task.create_time > that_task.create_time else (that_task, that_log)
-        
+
+    @staticmethod
+    def _retrieve_all_tasklogs(cmd, taskrun_client, registry, taskruns):
+        import concurrent.futures
+
+        def process_taskrun(taskrun):
+            if not hasattr(taskrun, 'task_log_result'):
+                tasklog = WorkflowTaskStatus.get_logs_for_taskrun(cmd, taskrun_client, taskrun, registry)
+                taskrun.task_log_result = tasklog
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = []
+            for taskrun in taskruns:
+                future = executor.submit(process_taskrun, taskrun)
+                futures.append(future)
+
+            # Wait for all threads to complete
+            concurrent.futures.wait(futures)
+
     # a different/better approach might be to have this functions just get all tasks/logs related to the image, and then have a different function to filter it to the latest logs
     # that way with images with a '*' tag we can deffer the filtering to a later stage
     # for now leave it as is, get a single log, we will figure it out later. Just want to see it working
     @staticmethod
     def from_taskrun(cmd, taskrun_client, registry, image, taskruns):
+        # start_time = time.time()
+        WorkflowTaskStatus._retrieve_all_tasklogs(cmd, taskrun_client, registry, taskruns)
+        # end_time = time.time()
+        # execution_time = end_time - start_time
+
         if str(image).endswith(':*'):
             repository = image.split(':')[0]
             return WorkflowTaskStatus._from_taskrun_wildcard(cmd, taskrun_client, registry, repository, taskruns)
-        
+
         status = WorkflowTaskStatus(image)
         has_scan = False
         has_patch = False
-        
-        ####
-        #how to model/represent when we have a '*' tag and have to serve multiple status?
+
         for taskrun in taskruns:
-            if hasattr(taskrun, 'task_log_result'):
-                tasklog = taskrun.task_log_result
-            else:
-                tasklog = WorkflowTaskStatus.get_logs_for_taskrun(cmd, taskrun_client, taskrun, registry)
-                taskrun.task_log_result = tasklog
-            # we also need to check if we already have logs, and if they are newer than the ones we have found previously
-            # need to match the status from the run to the Enum we have here. mostly matching what is in C:\git\build1\src\ACR.Build.Contracts\src\Status.cs -- taskrun.status
             image = status.image()
+            tasklog = taskrun.task_log_result
             if image in tasklog:
                 taskruns.remove(taskrun)
                 if taskrun.task == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
@@ -171,7 +203,7 @@ class WorkflowTaskStatus:
                     status.scan_logs = latest_log
                     has_scan = True
                 elif taskrun.task == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
-                    latest_run = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
+                    latest_run, latest_log = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
                     status.patch_task = latest_run
                     status.patch_logs = latest_log
                     has_patch = True
@@ -182,7 +214,7 @@ class WorkflowTaskStatus:
         # possible optimization, remove the tasks we have already processed from the list to reduce the number of taskruns we have to go through for future iterations/objects
         # the problem is that taskruns is an iterator, so we can't remove elements from it
         ## copy it to a list?
-        return status
+        return [status]  # keep it standard with the status from wildcard, in case it is being used in loops
 
     def __str__(self) -> str:
         scan_status = self.scan_status()
@@ -191,7 +223,7 @@ class WorkflowTaskStatus:
         patch_status = self.patch_status()
         patch_date = "" if self.patch_task is None else self.patch_task.create_time
         patch_task_id = "" if self.patch_task is None else self.patch_task.run_id
-        patched_image = f"{self.repository}:{self.tag}-1" if self.patch_task is not None else "" # fix this one
+        patched_image = self._get_patched_image_name_from_tasklog() if self.patch_task is not None else ""
         workflow_type = CSSCTaskTypes.ContinuousPatchV1.value
 
         return f"image: {self.repository}:{self.tag}\n" \
