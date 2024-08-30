@@ -47,8 +47,8 @@ logger = get_logger(__name__)
 DEFAULT_CHUNK_SIZE = 1024 * 4
 
 
-def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule, dryrun, defer_immediate_run, is_create_workflow=True):
-    logger.debug(f"Entering continuousPatchV1_creation {cssc_config_file} {dryrun} {defer_immediate_run}")
+def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule, dryrun, run_immediately, is_create_workflow=True):
+    logger.debug(f"Entering continuousPatchV1_creation {cssc_config_file} {dryrun} {run_immediately}")
     resource_group = parse_resource_id(registry.id)[RESOURCE_GROUP]
     schedule_cron_expression = None
     if schedule is not None:
@@ -68,7 +68,7 @@ def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule,
         create_oci_artifact_continuous_patch(registry, cssc_config_file, dryrun)
         logger.debug(f"Uploading of {cssc_config_file} completed successfully.")
 
-    _eval_trigger_run(cmd, registry, resource_group, defer_immediate_run)
+    _eval_trigger_run(cmd, registry, resource_group, run_immediately)
 
 
 def _create_cssc_workflow(cmd, registry, schedule_cron_expression, resource_group, dry_run):
@@ -101,8 +101,8 @@ def _update_cssc_workflow(cmd, registry, schedule_cron_expression, resource_grou
         _update_task_schedule(cmd, registry, schedule_cron_expression, resource_group, dry_run)
 
 
-def _eval_trigger_run(cmd, registry, resource_group, defer_immediate_run):
-    if not defer_immediate_run:
+def _eval_trigger_run(cmd, registry, resource_group, run_immediately):
+    if run_immediately:
         logger.warning(f'Triggering the {CONTINUOSPATCH_TASK_SCANREGISTRY_NAME} to run immediately')
         # Seen Managed Identity taking time, see if there can be an alternative (one alternative is to schedule the cron expression with delay)
         # NEED TO SKIP THE TIME.SLEEP IN UNIT TEST CASE OR FIND AN ALTERNATIVE SOLUITION TO MI COMPLETE

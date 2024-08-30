@@ -94,6 +94,10 @@ CONTINUOUSPATCH_CONFIG_SCHEMA_V1 = {
         "version": {
             "type": "string",
         },
+        "tag-convention": {
+            "type": "string",
+            "pattern": "(?i)floating|incremental"
+        },
         "repositories": {
             "type": "array",
             "items": {
