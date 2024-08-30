@@ -31,7 +31,8 @@ logger = get_logger(__name__)
 
 def validate_continuouspatch_config_v1(config_path):
     _validate_continuouspatch_file(config_path)
-    _validate_continuouspatch_json(config_path)
+    config = _validate_continuouspatch_json(config_path)
+    _validate_continuouspatch_config(config)
 
 
 def _validate_continuouspatch_file(config_path):
@@ -53,11 +54,23 @@ def _validate_continuouspatch_json(config_path):
         with open(config_path, 'r') as f:
             config = json.load(f)
             validate(config, CONTINUOUSPATCH_CONFIG_SCHEMA_V1)
+            return config
     except Exception as e:
         logger.debug(f"Error validating the continuous patch config file: {e}")
         raise InvalidArgumentValueError("File used for --config is not a valid config JSON file. Use --help to see the schema of the config file.")
     finally:
         f.close()
+
+
+def _validate_continuouspatch_config(config):
+    if not isinstance(config, dict):
+        raise InvalidArgumentValueError("Config file is not a valid JSON file. Use --help to see the schema of the config file.")
+    for repository in config.get("repositories", []):
+        for tag in repository.get("tags", []):
+            if re.match(r'.*-patched$', tag) or re.match(r'.*-[0-9]{1,3}$', tag):
+                raise InvalidArgumentValueError(f"Configuration error: Repository {repository['repository']} Tag {tag} is not allowed. Tags ending with '*-patched' (floating tag) or '*-[0-9]\\{{1,3}}' (incremental tag) are reserved for internal use.")
+            if tag == "*" and len(repository.get("tags", [])) > 1:
+                raise InvalidArgumentValueError("Configuration error: Tag '*' is not allowed with other tags in the same repository. Use '*' as the only tag in the repository to avoid overlaps.")
 
 
 def check_continuous_task_exists(cmd, registry):
