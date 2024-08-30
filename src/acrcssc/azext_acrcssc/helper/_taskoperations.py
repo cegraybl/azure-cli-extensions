@@ -234,26 +234,55 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, cadence
     previous_date = today - delta
     previous_date_filter = previous_date.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    list_filter_str = f"TaskName in ('{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}') and createTime ge {previous_date_filter}"
-    # filters found in ACR.BuildRP.DataModels\src\v18_09_GA\RunFilter.cs
-
-    top = 1000
     # th API returns an iterator, if we want to be able to modify it, we need to convert it to a list
-    taskruns = acr_task_run_client.list(resource_group_name, registry.name, filter=list_filter_str, top=top)
-    taskruns_list = list(taskruns)
+    scan_taskruns = _get_taskruns_with_filter(
+        acr_task_run_client,
+        registry,
+        resource_group_name,
+        taskname_filter=[CONTINUOSPATCH_TASK_SCANIMAGE_NAME],
+        date_filter=previous_date_filter)
+    
+    patch_taskruns = _get_taskruns_with_filter(
+        acr_task_run_client,
+        registry,
+        resource_group_name,
+        taskname_filter=[CONTINUOSPATCH_TASK_PATCHIMAGE_NAME],
+        date_filter=previous_date_filter)
 
     ## another way that we might speed things up is, instead of doing n^2 check while matching image to task, is to get all the logs, and start populating with the logs that we have, and use that to match the image to the task, instead than the task to the image
     ## one more way, get all the logs first (multiple threads), and then match the logs to the images, this way we can get the logs faster, and then match them to the images however we want
     ## another thing, separate the patch and the scan logs, no need to double the search space just for the hell of it. The scanning task will have info on the patching task (runid it trigerred), so we can use that to match the logs and make it easier
-    start_time = time.time()
+    # start_time = time.time()
 
-    for image in images:
-        image_status += WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, image, taskruns_list)
+    image_status = WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, images, scan_taskruns, patch_taskruns)
 
-    end_time = time.time()
-    execution_time = end_time - start_time
-    print(f"Execution time: {execution_time} seconds / images processed: {len(images)} / tasks filtered: {len(taskruns_list)}")
+    # end_time = time.time()
+    # execution_time = end_time - start_time
+    # print(f"Execution time: {execution_time} seconds / images processed: {len(images)} / tasks filtered: {len(scan_taskruns)} + {len(patch_taskruns)}")
     return image_status
+
+
+def _get_taskruns_with_filter(acr_task_run_client, registry, resource_group_name, taskname_filter=None, date_filter=None, status_filter=None, top=1000):
+    # filters found in ACR.BuildRP.DataModels\src\v18_09_GA\RunFilter.cs
+    #list_filter_str = f"TaskName in ('{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}') and createTime ge {previous_date_filter}"
+    filter = ""
+    if taskname_filter:
+        taskname_filter_str = "', '".join(taskname_filter)
+        filter += f"TaskName in ('{taskname_filter_str}')"
+
+    if date_filter:
+        if filter != "":
+            filter += " and "
+        filter += f"createTime ge {date_filter}"
+
+    if status_filter:
+        if filter != "":
+            filter += " and "
+        status_filter_str = "', '".join(status_filter)
+        filter += f"Status in ('{status_filter_str}')"
+
+    taskruns = acr_task_run_client.list(resource_group_name, registry.name, filter=filter, top=top)
+    return list(taskruns)
 
 
 def _trigger_task_run(cmd, registry, resource_group, task_name):

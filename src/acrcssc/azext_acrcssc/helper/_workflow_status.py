@@ -88,6 +88,18 @@ class WorkflowTaskStatus:
 
         return WorkflowTaskState.UNKNOWN.value
 
+    @staticmethod
+    def _workflow_status_to_task_status(status):
+        if status == WorkflowTaskState.SUCCEEDED.value:
+            return ["Succeeded"]
+        if status == WorkflowTaskState.RUNNING.value:
+            return ["Running", "Started"]
+        if status == WorkflowTaskState.QUEUED.value:
+            return ["Queued"]
+        if status == WorkflowTaskState.FAILED.value:
+            return ["Failed", "Canceled", "Error", "Timeout"]
+        return None
+
     def scan_status(self):
         return WorkflowTaskStatus._task_status_to_workflow_status(self.scan_task)
 
@@ -96,24 +108,22 @@ class WorkflowTaskStatus:
 
     # this extracts the image from the copacetic task logs, using this when we only have a repository name and a wildcard tag
     @staticmethod
-    def _get_image_from_tasklog(logs, task_type):
-        if task_type == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
-            match = re.search(r'Scanning image for vulnerability and patch (\S+)', logs)
-        if task_type == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
+    def _get_image_from_tasklog(logs):
+        match = re.search(r'Scanning image for vulnerability and patch (\S+) for tag \S+', logs)
+        if not match:
             match = re.search(r'Scan, Upload scan report and Schedule Patch for (\S+)', logs)
 
         if match:
             return match.group(1)
-        else:
-            # task run 'ds10y' is scanning, but has the patch string, so what the hell?
-            if task_type == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
-                match = re.search(r'Scan, Upload scan report and Schedule Patch for (\S+)', logs)
-            if task_type == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
-                match = re.search(r'Scanning image for vulnerability and patch (\S+)', logs)
+        return None
 
+    def _get_patch_task_from_scan_tasklog(self):
+        if self.scan_task is None:
+            return None
+
+        match = re.search(r'WARNING: Queued a run with ID: (\S+)', self.scan_logs)
         if match:
             return match.group(1)
-
         return None
 
     def _get_patched_image_name_from_tasklog(self):
@@ -125,28 +135,28 @@ class WorkflowTaskStatus:
             return match.group(1)
         return None
 
-    @staticmethod
-    def _from_taskrun_wildcard(cmd, taskrun_client, registry, repository, taskruns):
-        all_status = {}
+    # @staticmethod
+    # def _from_taskrun_wildcard(cmd, taskrun_client, registry, repository, scan_taskruns, patch_taskruns):
+    #     all_status = {}
 
-        for taskrun in taskruns:
-            tasklog = taskrun.task_log_result
-            if repository in tasklog:
-                image = WorkflowTaskStatus._get_image_from_tasklog(tasklog, taskrun.task)
-                if all_status.get(image) is None:
-                    all_status[image] = WorkflowTaskStatus(image)
+    #     for taskrun in taskruns:
+    #         tasklog = taskrun.task_log_result
+    #         if repository in tasklog:
+    #             image = WorkflowTaskStatus._get_image_from_tasklog(tasklog)
+    #             if all_status.get(image) is None:
+    #                 all_status[image] = WorkflowTaskStatus(image)
 
-                status = all_status[image]
-                if taskrun.task == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
-                    latest_run, latest_log = WorkflowTaskStatus._latest_task(status.scan_task, status.scan_logs, taskrun, tasklog)
-                    all_status[image].scan_task = latest_run
-                    all_status[image].scan_logs = latest_log
-                elif taskrun.task == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
-                    latest_run, latest_log = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
-                    all_status[image].patch_task = latest_run
-                    all_status[image].patch_logs = latest_log
+    #             status = all_status[image]
+    #             if taskrun.task == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
+    #                 latest_run, latest_log = WorkflowTaskStatus._latest_task(status.scan_task, status.scan_logs, taskrun, tasklog)
+    #                 all_status[image].scan_task = latest_run
+    #                 all_status[image].scan_logs = latest_log
+    #             elif taskrun.task == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
+    #                 latest_run, latest_log = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
+    #                 all_status[image].patch_task = latest_run
+    #                 all_status[image].patch_logs = latest_log
 
-        return all_status.values()
+    #     return all_status.values()
 
     @staticmethod
     def _latest_task(this_task, this_log, that_task, that_log):
@@ -178,43 +188,73 @@ class WorkflowTaskStatus:
     # that way with images with a '*' tag we can deffer the filtering to a later stage
     # for now leave it as is, get a single log, we will figure it out later. Just want to see it working
     @staticmethod
-    def from_taskrun(cmd, taskrun_client, registry, image, taskruns):
+    def from_taskrun(cmd, taskrun_client, registry, images, scan_taskruns, patch_taskruns):
         # start_time = time.time()
-        WorkflowTaskStatus._retrieve_all_tasklogs(cmd, taskrun_client, registry, taskruns)
+        # get logs for all scans, we will match to the patches later
+        WorkflowTaskStatus._retrieve_all_tasklogs(cmd, taskrun_client, registry, scan_taskruns)
         # end_time = time.time()
         # execution_time = end_time - start_time
+        all_status = {}
 
-        if str(image).endswith(':*'):
-            repository = image.split(':')[0]
-            return WorkflowTaskStatus._from_taskrun_wildcard(cmd, taskrun_client, registry, repository, taskruns)
+        for scan in scan_taskruns:
+            #we are not getting all logs, and sometimes the logs is printed, need to fix the function
+            image = WorkflowTaskStatus._get_image_from_tasklog(scan.task_log_result)
+            
+            if not image:
+                continue
+            
+            # need to check if we have the latest scan task, is it better to get latest first or to get all and then get the latest?
+            task = scan
+            logs = scan.task_log_result
+            if image in all_status:
+                task, logs = WorkflowTaskStatus._latest_task(all_status[image].scan_task, all_status[image].scan_logs, scan, scan.task_log_result)
+            else:
+                all_status[image] = WorkflowTaskStatus(image)
+            all_status[image].scan_task = task
+            all_status[image].scan_logs = logs
+            patch_task_id = all_status[image]._get_patch_task_from_scan_tasklog()
+            # missing the patch task id means that the scan either failed, or succeeded and patching is not needed
+            # this is important, because patching status depends on both the patching task status (if it exists) and the scan task status
+            if patch_task_id is not None:
+                patch_task = next(task for task in patch_taskruns if task.run_id == patch_task_id)
+                all_status[image].patch_task = patch_task
 
-        status = WorkflowTaskStatus(image)
-        has_scan = False
-        has_patch = False
+                # this does not benefit from multithreading, need to evaluate if it is worth it
+                # I don;t think we need the patch logs at this moment, maybe later is we want a command to get the logs for a specific task
+                # WorkflowTaskStatus._retrieve_all_tasklogs(cmd, taskrun_client, registry, [patch_task])
+                # all_status[image].patch_logs = patch_task.task_log_result
 
-        for taskrun in taskruns:
-            image = status.image()
-            tasklog = taskrun.task_log_result
-            if image in tasklog:
-                taskruns.remove(taskrun)
-                if taskrun.task == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
-                    latest_run, latest_log = WorkflowTaskStatus._latest_task(status.scan_task, status.scan_logs, taskrun, tasklog)
-                    status.scan_task = latest_run
-                    status.scan_logs = latest_log
-                    has_scan = True
-                elif taskrun.task == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
-                    latest_run, latest_log = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
-                    status.patch_task = latest_run
-                    status.patch_logs = latest_log
-                    has_patch = True
+        # if str(image).endswith(':*'):
+        #     repository = image.split(':')[0]
+        #     return WorkflowTaskStatus._from_taskrun_wildcard(cmd, taskrun_client, registry, repository, taskruns)
 
-            if has_scan and has_patch:
-                break
+        # status = WorkflowTaskStatus(image)
+        # has_scan = False
+        # has_patch = False
+
+        # for taskrun in taskruns:
+        #     image = status.image()
+        #     tasklog = taskrun.task_log_result
+        #     if image in tasklog:
+        #         taskruns.remove(taskrun)
+        #         if taskrun.task == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
+        #             latest_run, latest_log = WorkflowTaskStatus._latest_task(status.scan_task, status.scan_logs, taskrun, tasklog)
+        #             status.scan_task = latest_run
+        #             status.scan_logs = latest_log
+        #             has_scan = True
+        #         elif taskrun.task == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
+        #             latest_run, latest_log = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
+        #             status.patch_task = latest_run
+        #             status.patch_logs = latest_log
+        #             has_patch = True
+
+        #     if has_scan and has_patch:
+        #         break
 
         # possible optimization, remove the tasks we have already processed from the list to reduce the number of taskruns we have to go through for future iterations/objects
         # the problem is that taskruns is an iterator, so we can't remove elements from it
         ## copy it to a list?
-        return [status]  # keep it standard with the status from wildcard, in case it is being used in loops
+        return all_status.values()
 
     def __str__(self) -> str:
         scan_status = self.scan_status()
