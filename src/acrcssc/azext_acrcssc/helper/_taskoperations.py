@@ -40,8 +40,10 @@ from azext_acrcssc._client_factory import cf_acr_tasks, cf_authorization, cf_acr
 from azext_acrcssc.helper._deployment import validate_and_deploy_template
 from azext_acrcssc.helper._ociartifactoperations import create_oci_artifact_continuous_patch, delete_oci_artifact_continuous_patch
 from azext_acrcssc._validators import check_continuous_task_exists, check_continuous_task_config_exists
+from datetime import datetime, timezone
 from msrestazure.azure_exceptions import CloudError
 from ._utility import convert_timespan_to_cron, transform_cron_to_schedule, create_temporary_dry_run_file, delete_temporary_dry_run_file
+
 
 logger = get_logger(__name__)
 DEFAULT_CHUNK_SIZE = 1024 * 4
@@ -69,6 +71,9 @@ def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule,
         logger.debug(f"Uploading of {cssc_config_file} completed successfully.")
 
     _eval_trigger_run(cmd, registry, resource_group, run_immediately)
+
+    next_date = get_next_date(schedule_cron_expression)
+    print(f"Continuous Patching workflow scheduled to run next at: {next_date} UTC")
 
 
 def _create_cssc_workflow(cmd, registry, schedule_cron_expression, resource_group, dry_run):
@@ -473,3 +478,11 @@ def _remove_internal_acr_statements(blob_content):
 
         if print_line:
             print(line)
+
+
+def get_next_date(cron_expression):
+    from croniter import croniter
+    now = datetime.now(timezone.utc)
+    cron = croniter(cron_expression, now, expand_from_start_time=False)
+    next_date = cron.get_next(datetime)
+    return str(next_date)
