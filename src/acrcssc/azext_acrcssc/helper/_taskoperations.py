@@ -72,8 +72,10 @@ def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule,
 
     _eval_trigger_run(cmd, registry, resource_group, run_immediately)
 
-    next_date = get_next_date(schedule_cron_expression)
-    print(f"Continuous Patching workflow scheduled to run next at: {next_date} UTC")
+    # on 'update' schedule is optional
+    if schedule is not None:
+        next_date = get_next_date(schedule_cron_expression)
+        print(f"Continuous Patching workflow scheduled to run next at: {next_date} UTC")
 
 
 def _create_cssc_workflow(cmd, registry, schedule_cron_expression, resource_group, dry_run):

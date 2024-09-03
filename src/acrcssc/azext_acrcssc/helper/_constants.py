@@ -70,6 +70,7 @@ ERROR_MESSAGE_INVALID_TIMESPAN_FORMAT = "Schedule format is invalid. "
 RECOMMENDATION_SCHEDULE = "Schedule must be in the format of <number><unit> where unit is d for days. Example: 1d. Max value for d is 30d."
 # this dictionary can be expanded to handle more configuration of the tasks regarding continuous patching
 # if this gets out of hand, or more types of tasks are supported, this should be a class on its own
+# BUG: this structure should be merged with 'CONTINUOUS_PATCH_WORKFLOW' dictionary. Ideally model it as a class
 CONTINUOSPATCH_TASK_DEFINITION = {
     CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
         {
@@ -88,6 +89,7 @@ CONTINUOSPATCH_TASK_DEFINITION = {
         },
 }
 CONTINUOUSPATCH_CONFIG_SCHEMA_SIZE_LIMIT = 1024 * 1024 * 10  # 10MB, we don't want to allow huge files
+CONTINUOUSPATCH_CONFIG_SUPPORTED_VERSIONS = ["v1"]
 CONTINUOUSPATCH_CONFIG_SCHEMA_V1 = {
     "type": "object",
     "properties": {
