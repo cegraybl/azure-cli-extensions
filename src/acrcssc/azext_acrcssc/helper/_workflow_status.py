@@ -11,11 +11,9 @@ import re
 from ._constants import (
     CONTINUOSPATCH_TASK_PATCHIMAGE_NAME,
     CONTINUOSPATCH_TASK_SCANIMAGE_NAME,
-    TASK_RUN_STATUS_RUNNING,
-    TASK_RUN_STATUS_FAILED,
-    TASK_RUN_STATUS_SUCCESS,
     RESOURCE_GROUP,
-    CSSCTaskTypes)
+    CSSCTaskTypes,
+    TaskRunStatus)
 from azure.cli.command_modules.acr._constants import ACR_RUN_DEFAULT_TIMEOUT_IN_SEC
 from azure.cli.core.profiles import ResourceType, get_sdk
 from azure.cli.command_modules.acr._azure_utils import get_blob_info
@@ -42,9 +40,7 @@ class WorkflowTaskStatus:
         # string to represent the repository
         self.repository = repo[0]
 
-        # string to represent the tag, can be '*', but for that we should be splitting it to a specific tag per repository
-        # if tag == '*':
-        #     raise ValueError('Unsupported, for tag "*" please split it to a specific tag per repository')
+        # string to represent the tag, can be '*', which means all tags. in that situation the class should be able to resolve to the individual tags on the registry
         self.tag = repo[1]
 
         # latest taskrun object for the scan task, if none, means no scan task has been run
@@ -74,16 +70,16 @@ class WorkflowTaskStatus:
             return WorkflowTaskState.UNKNOWN.value
         
         status = task.status.lower()
-        if status == "succeeded":
+        if status == TaskRunStatus.SUCCEEDED.value:
             return WorkflowTaskState.SUCCEEDED.value
 
-        if status == "running" or status == "started":
+        if status == TaskRunStatus.Running.value or status == TaskRunStatus.Started.value:
             return WorkflowTaskState.RUNNING.value
 
-        if status == "queued":
+        if status == TaskRunStatus.Queued.value:
             return WorkflowTaskState.QUEUED.value
 
-        if status == "failed" or status == "canceled" or status == "error" or status == "timeout":
+        if status == TaskRunStatus.Failed.value or status == TaskRunStatus.Canceled.value or status == TaskRunStatus.Error.value or status == task.Timeout.value:
             return WorkflowTaskState.FAILED.value
 
         return WorkflowTaskState.UNKNOWN.value
@@ -91,20 +87,31 @@ class WorkflowTaskStatus:
     @staticmethod
     def _workflow_status_to_task_status(status):
         if status == WorkflowTaskState.SUCCEEDED.value:
-            return ["Succeeded"]
+            return [TaskRunStatus.Succeeded.value]
         if status == WorkflowTaskState.RUNNING.value:
-            return ["Running", "Started"]
+            return [TaskRunStatus.Running.value, TaskRunStatus.Started.value]
         if status == WorkflowTaskState.QUEUED.value:
-            return ["Queued"]
+            return [TaskRunStatus.Queued.value]
         if status == WorkflowTaskState.FAILED.value:
-            return ["Failed", "Canceled", "Error", "Timeout"]
+            return [TaskRunStatus.Failed.value, TaskRunStatus.Canceled.value, TaskRunStatus.Error.value, TaskRunStatus.Timeout.value]
         return None
 
     def scan_status(self):
         return WorkflowTaskStatus._task_status_to_workflow_status(self.scan_task)
 
     def patch_status(self):
+        # this one is a bit more complicated, because the patch status depends on the scan status
+        # or more correctly, the patch status is the scan status if there is no patch task
+        # and the whole workflow status is both the scan and patch status
+        if self.patch_task is None and self.scan_status() == WorkflowTaskState.SUCCEEDED.value:
+            return WorkflowTaskState.SUCCEEDED.value
         return WorkflowTaskStatus._task_status_to_workflow_status(self.patch_task)
+
+    def status(self):
+        if self.patch_task is None:
+            return self.scan_status()
+
+        return self.patch_status()
 
     # this extracts the image from the copacetic task logs, using this when we only have a repository name and a wildcard tag
     @staticmethod
@@ -135,28 +142,6 @@ class WorkflowTaskStatus:
             return match.group(1)
         return None
 
-    # @staticmethod
-    # def _from_taskrun_wildcard(cmd, taskrun_client, registry, repository, scan_taskruns, patch_taskruns):
-    #     all_status = {}
-
-    #     for taskrun in taskruns:
-    #         tasklog = taskrun.task_log_result
-    #         if repository in tasklog:
-    #             image = WorkflowTaskStatus._get_image_from_tasklog(tasklog)
-    #             if all_status.get(image) is None:
-    #                 all_status[image] = WorkflowTaskStatus(image)
-
-    #             status = all_status[image]
-    #             if taskrun.task == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
-    #                 latest_run, latest_log = WorkflowTaskStatus._latest_task(status.scan_task, status.scan_logs, taskrun, tasklog)
-    #                 all_status[image].scan_task = latest_run
-    #                 all_status[image].scan_logs = latest_log
-    #             elif taskrun.task == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
-    #                 latest_run, latest_log = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
-    #                 all_status[image].patch_task = latest_run
-    #                 all_status[image].patch_logs = latest_log
-
-    #     return all_status.values()
 
     @staticmethod
     def _latest_task(this_task, this_log, that_task, that_log):
@@ -172,7 +157,7 @@ class WorkflowTaskStatus:
 
         def process_taskrun(taskrun):
             if not hasattr(taskrun, 'task_log_result'):
-                tasklog = WorkflowTaskStatus.get_logs_for_taskrun(cmd, taskrun_client, taskrun, registry)
+                tasklog = WorkflowTaskStatus.generate_logs(cmd, taskrun_client, taskrun, registry, await_task_run=False)
                 taskrun.task_log_result = tasklog
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -219,41 +204,6 @@ class WorkflowTaskStatus:
                 patch_task = next(task for task in patch_taskruns if task.run_id == patch_task_id)
                 all_status[image].patch_task = patch_task
 
-                # this does not benefit from multithreading, need to evaluate if it is worth it
-                # I don;t think we need the patch logs at this moment, maybe later is we want a command to get the logs for a specific task
-                # WorkflowTaskStatus._retrieve_all_tasklogs(cmd, taskrun_client, registry, [patch_task])
-                # all_status[image].patch_logs = patch_task.task_log_result
-
-        # if str(image).endswith(':*'):
-        #     repository = image.split(':')[0]
-        #     return WorkflowTaskStatus._from_taskrun_wildcard(cmd, taskrun_client, registry, repository, taskruns)
-
-        # status = WorkflowTaskStatus(image)
-        # has_scan = False
-        # has_patch = False
-
-        # for taskrun in taskruns:
-        #     image = status.image()
-        #     tasklog = taskrun.task_log_result
-        #     if image in tasklog:
-        #         taskruns.remove(taskrun)
-        #         if taskrun.task == CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
-        #             latest_run, latest_log = WorkflowTaskStatus._latest_task(status.scan_task, status.scan_logs, taskrun, tasklog)
-        #             status.scan_task = latest_run
-        #             status.scan_logs = latest_log
-        #             has_scan = True
-        #         elif taskrun.task == CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
-        #             latest_run, latest_log = WorkflowTaskStatus._latest_task(status.patch_task, status.patch_logs, taskrun, tasklog)
-        #             status.patch_task = latest_run
-        #             status.patch_logs = latest_log
-        #             has_patch = True
-
-        #     if has_scan and has_patch:
-        #         break
-
-        # possible optimization, remove the tasks we have already processed from the list to reduce the number of taskruns we have to go through for future iterations/objects
-        # the problem is that taskruns is an iterator, so we can't remove elements from it
-        ## copy it to a list?
         return all_status.values()
 
     def __str__(self) -> str:
@@ -275,19 +225,6 @@ class WorkflowTaskStatus:
                f"\tpatch task ID: {patch_task_id}\n" \
                f"\tpatched image: {patched_image}\n" \
                f"\tworkflow type: {workflow_type}"
-        
-
-    # i want to improve on this, don't want to do an output redirect always, need change it to have it both ways (stream and string)
-    @staticmethod
-    def get_logs_for_taskrun(cmd, taskrun_client, taskrun, registry):
-        import io
-        from contextlib import redirect_stdout
-
-        f = io.StringIO()
-        with redirect_stdout(f):
-            resource_group = parse_resource_id(registry.id)[RESOURCE_GROUP]
-            WorkflowTaskStatus.generate_logs(cmd, taskrun_client, taskrun.run_id, registry.name, resource_group)
-        return f.getvalue()
 
 
     @staticmethod
@@ -297,8 +234,8 @@ class WorkflowTaskStatus:
         run_id,
         registry_name,
         resource_group_name,
-        timeout=ACR_RUN_DEFAULT_TIMEOUT_IN_SEC,
-        print_output=True):
+        await_task_run=True,
+        timeout=ACR_RUN_DEFAULT_TIMEOUT_IN_SEC):
 
         log_file_sas = None
         error_msg = "Could not get logs for ID: {}".format(run_id)
@@ -318,25 +255,24 @@ class WorkflowTaskStatus:
         if not timeout:
             timeout = ACR_RUN_DEFAULT_TIMEOUT_IN_SEC
 
-        run_status = TASK_RUN_STATUS_RUNNING
-        while WorkflowTaskStatus._evaluate_task_run_nonterminal_state(run_status):
+        run_status = TaskRunStatus.Running.value
+        while await_task_run and WorkflowTaskStatus._evaluate_task_run_nonterminal_state(run_status):
             run_status = WorkflowTaskStatus._get_run_status_local(client, resource_group_name, registry_name, run_id)
             if WorkflowTaskStatus._evaluate_task_run_nonterminal_state(run_status):
                 logger.debug("Waiting for the task run to complete. Current status: %s", run_status)
                 time.sleep(2)
 
-        WorkflowTaskStatus._download_logs(
+        return WorkflowTaskStatus._download_logs(
             AppendBlobService(
                 account_name=account_name,
                 sas_token=sas_token,
                 endpoint_suffix=endpoint_suffix),
             container_name,
-            blob_name,
-            print_output=print_output)
+            blob_name)
     
     @staticmethod
     def _evaluate_task_run_nonterminal_state(run_status):
-        return run_status != TASK_RUN_STATUS_SUCCESS and run_status != TASK_RUN_STATUS_FAILED
+        return run_status != TaskRunStatus.Succeeded.value and run_status != TaskRunStatus.Failed.value
     
     @staticmethod
     def _get_run_status_local(client, resource_group_name, registry_name, run_id):
@@ -349,15 +285,14 @@ class WorkflowTaskStatus:
     @staticmethod
     def _download_logs(blob_service,
                        container_name,
-                       blob_name,
-                       print_output):
+                       blob_name):
         blob_text = blob_service.get_blob_to_text(
             container_name=container_name,
             blob_name=blob_name)
-        WorkflowTaskStatus._remove_internal_acr_statements(blob_text.content, print_output)
+        return WorkflowTaskStatus._remove_internal_acr_statements(blob_text.content)
 
     @staticmethod
-    def _remove_internal_acr_statements(blob_content, print_output):
+    def _remove_internal_acr_statements(blob_content):
         lines = blob_content.split("\n")
         starting_identifier = "DRY RUN mode enabled"
         terminating_identifier = "Total matches found"
@@ -368,13 +303,10 @@ class WorkflowTaskStatus:
             if line.startswith(starting_identifier):
                 print_line = True
             elif line.startswith(terminating_identifier):
-                if print_output:
-                    print(line)
-                else:
-                    output = output + "\n" + line
+                output += "\n" + line
                 print_line = False
 
-            if print_output:
-                print(line)
-            else:
-                output = output + "\n" + line
+            if print_line:
+                output += "\n" + line
+
+        return output

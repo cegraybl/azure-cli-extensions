@@ -15,11 +15,17 @@ class CSSCTaskTypes(Enum):
     # TrivyV1 = "TrivyV1"
 
 
-class CSSCTaskStatus(Enum):
-    """Enum for the task status."""
-    Failed = 'Failed'
-    Succeeded = 'Succeeded'
+class TaskRunStatus(Enum):
+    """Enum for the task status. From Build\src\ACR.Build.Contracts\src\Status.cs"""
+    Unknown = 'Unknown'
+    Queued = 'Queued'
+    Started = 'Started'
     Running = 'Running'
+    Succeeded = 'Succeeded'
+    Failed = 'Failed'
+    Canceled = 'Canceled'
+    Error = 'Error'
+    Timeout = 'Timeout'
 
 
 # General Constants
@@ -40,36 +46,21 @@ CONTINUOSPATCH_OCI_ARTIFACT_CONFIG_TAG_V1 = "v1"
 CONTINUOSPATCH_OCI_ARTIFACT_CONFIG_TAG_DRYRUN = "dryrun"
 CONTINUOSPATCH_DEPLOYMENT_NAME = "continuouspatchingdeployment"
 CONTINUOSPATCH_DEPLOYMENT_TEMPLATE = "CSSC-AutoImagePatching-encodedtasks.json"
-# listing all individual tasks that are requires for Continuous Patching to work
+# listing all individual tasks that are required for Continuous Patching to work
 CONTINUOSPATCH_TASK_PATCHIMAGE_NAME = "cssc-patch-image"
 CONTINUOUSPATCH_TASK_PATCHIMAGE_DESCRIPTION = "This task will patch the OS vulnerabilities on a given image using Copacetic."
 CONTINUOSPATCH_TASK_SCANIMAGE_NAME = "cssc-scan-image"
 CONTINUOUSPATCH_TASK_SCANIMAGE_DESCRIPTION = f"This task will perform vulnerability OS scan on a given image using Trivy. If there are any vulnerabilities found, it will trigger the patching task using {CONTINUOSPATCH_TASK_PATCHIMAGE_NAME} task."
 CONTINUOSPATCH_TASK_SCANREGISTRY_NAME = "cssc-trigger-workflow"
-CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION = f"This task will trigger the coninuous patching workflow based on the schedule set during the creation. It will match the filter repositories set with config parameter and schedule vulnerability scan check using {CONTINUOSPATCH_TASK_SCANIMAGE_NAME} task."
-CONTINUOUS_PATCHING_WORKFLOW_NAME = "continuouspatchv1"
+CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION = f"This task will trigger the coninuous patching workflow based on the cadence set during the creation. It will match the filter repositories set with config parameter and schedule vulnerability scan check using {CONTINUOSPATCH_TASK_SCANIMAGE_NAME} task."
+CONTINUOUS_PATCHING_WORKFLOW_NAME = CSSCTaskTypes.ContinuousPatchV1.value
 DESCRIPTION = "Description"
-TASK_RUN_STATUS_FAILED = "Failed"
-TASK_RUN_STATUS_SUCCESS = "Succeeded"
-TASK_RUN_STATUS_RUNNING = "Running"
 
 CONTINUOSPATCH_ALL_TASK_NAMES = [
     CONTINUOSPATCH_TASK_PATCHIMAGE_NAME,
     CONTINUOSPATCH_TASK_SCANIMAGE_NAME,
     CONTINUOSPATCH_TASK_SCANREGISTRY_NAME
 ]
-
-CONTINUOUS_PATCH_WORKFLOW = {
-    CONTINUOSPATCH_TASK_SCANREGISTRY_NAME: {
-        DESCRIPTION: CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION
-    },
-    CONTINUOSPATCH_TASK_SCANIMAGE_NAME: {
-        DESCRIPTION: CONTINUOUSPATCH_TASK_SCANIMAGE_DESCRIPTION
-    },
-    CONTINUOSPATCH_TASK_PATCHIMAGE_NAME: {
-        DESCRIPTION: CONTINUOUSPATCH_TASK_PATCHIMAGE_DESCRIPTION
-    }
-}
 
 ERROR_MESSAGE_INVALID_TASK = "Workflow type is invalid"
 ERROR_MESSAGE_INVALID_TIMESPAN_VALUE = "Schedule value is invalid. "
@@ -82,17 +73,20 @@ CONTINUOSPATCH_TASK_DEFINITION = {
     CONTINUOSPATCH_TASK_PATCHIMAGE_NAME:
         {
             "parameter_name": "imagePatchingEncodedTask",
-            "template_file": "task/cssc_patch_image.yaml"
+            "template_file": "task/cssc_patch_image.yaml",
+            DESCRIPTION: CONTINUOUSPATCH_TASK_PATCHIMAGE_DESCRIPTION
         },
     CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
         {
             "parameter_name": "imageScanningEncodedTask",
-            "template_file": "task/cssc_scan_image.yaml"
+            "template_file": f"task/cssc_scan_image.yaml",
+            DESCRIPTION: CONTINUOUSPATCH_TASK_SCANIMAGE_DESCRIPTION
         },
     CONTINUOSPATCH_TASK_SCANREGISTRY_NAME:
         {
             "parameter_name": "registryScanningEncodedTask",
-            "template_file": "task/cssc_trigger_workflow.yaml"
+            "template_file": f"task/cssc_trigger_workflow.yaml",
+            DESCRIPTION: CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION
         },
 }
 CONTINUOUSPATCH_CONFIG_SCHEMA_SIZE_LIMIT = 1024 * 1024 * 10  # 10MB, we don't want to allow huge files

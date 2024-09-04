@@ -12,7 +12,6 @@ from .helper._taskoperations import (
     list_continuous_patch_v1,
     acr_cssc_dry_run,
     cancel_continuous_patch_runs,
-    track_scan_progress,
     track_scan_progress_newer
 )
 from ._validators import (
@@ -43,7 +42,8 @@ def _perform_continuous_patch_operation(cmd,
 
     logger.debug('validations completed successfully.')
     if dryrun:
-        acr_cssc_dry_run(cmd, registry=registry, config_file_path=config, is_create=is_create)
+        dryrun_output = acr_cssc_dry_run(cmd, registry=registry, config_file_path=config, is_create=is_create)
+        print(dryrun_output)
     else:
         create_update_continuous_patch_v1(cmd, registry, config, schedule, dryrun, run_immediately, is_create)
 
