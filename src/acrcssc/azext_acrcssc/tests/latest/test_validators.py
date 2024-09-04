@@ -110,8 +110,8 @@ class AcrCsscCommandsTests(unittest.TestCase):
                     "tags": ["v1"],
                     "enabled": True
                 }],
-            "version": "1"
-            }
+            "version": "v1"
+        }
         mock_load.return_value = mock_config
 
         with patch('os.path.exists', return_value=True), \
@@ -136,11 +136,46 @@ class AcrCsscCommandsTests(unittest.TestCase):
         mock_load.return_value = mock_invalid_config
 
         with patch('os.path.exists', return_value=True), \
-             patch('os.path.isfile', return_value=True), \
-             patch('os.path.getsize', return_value=100), \
-             patch('os.access', return_value=True):
-             self.assertRaises(AzCLIError, validate_continuouspatch_config_v1, temp_file_path)
-    
+            patch('os.path.isfile', return_value=True), \
+            patch('os.path.getsize', return_value=100), \
+            patch('os.access', return_value=True):
+            self.assertRaises(AzCLIError, validate_continuouspatch_config_v1, temp_file_path)
+
+    @patch('azext_acrcssc._validators.json.load')
+    def test_validate_continuouspatch_json_invalid_tags_should_fail(self, mock_load):
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_file_path = temp_file.name
+
+        mock_invalid_config = {
+            "repositories": [
+                {
+                    "repository": "docker-local",
+                    "tags": ["v1-patched"],
+                }],
+            }
+        mock_load.return_value = mock_invalid_config
+
+        with patch('os.path.exists', return_value=True), \
+            patch('os.path.isfile', return_value=True), \
+            patch('os.path.getsize', return_value=100), \
+            patch('os.access', return_value=True):
+            self.assertRaises(AzCLIError, validate_continuouspatch_config_v1, temp_file_path)
+
+        mock_invalid_config = {
+            "repositories": [
+                {
+                    "repository": "docker-local",
+                    "tags": ["v1-999"],
+                }],
+        }
+        mock_load.return_value = mock_invalid_config
+
+        with patch('os.path.exists', return_value=True), \
+            patch('os.path.isfile', return_value=True), \
+            patch('os.path.getsize', return_value=100), \
+            patch('os.access', return_value=True):
+            self.assertRaises(AzCLIError, validate_continuouspatch_config_v1, temp_file_path)
+
     def _setup_cmd(self):
         cmd = mock.MagicMock()
         cmd.cli_ctx = DummyCli()

@@ -46,7 +46,6 @@ from ._utility import convert_timespan_to_cron, transform_cron_to_schedule, crea
 
 
 logger = get_logger(__name__)
-DEFAULT_CHUNK_SIZE = 1024 * 4
 
 
 def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule, dryrun, run_immediately, is_create_workflow=True):
@@ -73,9 +72,14 @@ def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule,
     _eval_trigger_run(cmd, registry, resource_group, run_immediately)
 
     # on 'update' schedule is optional
-    if schedule is not None:
-        next_date = get_next_date(schedule_cron_expression)
-        print(f"Continuous Patching workflow scheduled to run next at: {next_date} UTC")
+    if schedule is None:
+        task = get_task(cmd, registry, CONTINUOSPATCH_TASK_SCANREGISTRY_NAME)
+        trigger = task.trigger
+        if trigger and trigger.timer_triggers:
+            schedule_cron_expression = trigger.timer_triggers[0].schedule
+            
+    next_date = get_next_date(schedule_cron_expression)
+    print(f"Continuous Patching workflow scheduled to run next at: {next_date} UTC")
 
 
 def _create_cssc_workflow(cmd, registry, schedule_cron_expression, resource_group, dry_run):
@@ -488,3 +492,15 @@ def get_next_date(cron_expression):
     cron = croniter(cron_expression, now, expand_from_start_time=False)
     next_date = cron.get_next(datetime)
     return str(next_date)
+
+
+def get_task(cmd, registry, task_name=""):
+    acrtask_client = cf_acr_tasks(cmd.cli_ctx)
+    resourceid = parse_resource_id(registry.id)
+    resource_group = resourceid[RESOURCE_GROUP]
+
+    try:
+        return acrtask_client.get(resource_group, registry.name, task_name)
+    except Exception as exception:
+        logger.debug(f"Failed to find task {task_name} from registry {registry.name} : {exception}")
+        return None
