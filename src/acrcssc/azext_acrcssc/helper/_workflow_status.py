@@ -18,10 +18,11 @@ from azure.cli.command_modules.acr._constants import ACR_RUN_DEFAULT_TIMEOUT_IN_
 from azure.cli.core.profiles import ResourceType, get_sdk
 from azure.cli.command_modules.acr._azure_utils import get_blob_info
 from azure.cli.core.azclierror import AzCLIError
+from azure.mgmt.core.tools import parse_resource_id
+from azure.core.exceptions import ResourceNotFoundError
 from knack.log import get_logger
 from enum import Enum
 from msrestazure.azure_exceptions import CloudError
-from azure.mgmt.core.tools import parse_resource_id
 
 logger = get_logger(__name__)
 
@@ -68,9 +69,9 @@ class WorkflowTaskStatus:
     def _task_status_to_workflow_status(task):
         if task is None:
             return WorkflowTaskState.UNKNOWN.value
-        
+
         status = task.status.lower()
-        if status == TaskRunStatus.SUCCEEDED.value:
+        if status == TaskRunStatus.Succeeded.value:
             return WorkflowTaskState.SUCCEEDED.value
 
         if status == TaskRunStatus.Running.value or status == TaskRunStatus.Started.value:
@@ -79,7 +80,7 @@ class WorkflowTaskStatus:
         if status == TaskRunStatus.Queued.value:
             return WorkflowTaskState.QUEUED.value
 
-        if status == TaskRunStatus.Failed.value or status == TaskRunStatus.Canceled.value or status == TaskRunStatus.Error.value or status == task.Timeout.value:
+        if status == TaskRunStatus.Failed.value or status == TaskRunStatus.Canceled.value or status == TaskRunStatus.Error.value or status == TaskRunStatus.Timeout.value:
             return WorkflowTaskState.FAILED.value
 
         return WorkflowTaskState.UNKNOWN.value
@@ -154,11 +155,16 @@ class WorkflowTaskStatus:
     @staticmethod
     def _retrieve_all_tasklogs(cmd, taskrun_client, registry, taskruns):
         import concurrent.futures
-
+        resource_group = parse_resource_id(registry.id)[RESOURCE_GROUP]
+        
         def process_taskrun(taskrun):
-            if not hasattr(taskrun, 'task_log_result'):
-                tasklog = WorkflowTaskStatus.generate_logs(cmd, taskrun_client, taskrun, registry, await_task_run=False)
+            try:
+                tasklog = WorkflowTaskStatus.generate_logs(cmd, taskrun_client, taskrun.run_id, registry.name, resource_group, await_task_run=False)
+                if tasklog == "":
+                    logger.debug(f"Taskrun: {taskrun.run_id} has no logs, silent failure")
                 taskrun.task_log_result = tasklog
+            except Exception as e:
+                logger.debug(f"Failed to get logs for taskrun: {taskrun.run_id} with exception: {e}")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
@@ -182,15 +188,15 @@ class WorkflowTaskStatus:
         all_status = {}
 
         for scan in scan_taskruns:
-            #we are not getting all logs, and sometimes the logs is printed, need to fix the function
             image = WorkflowTaskStatus._get_image_from_tasklog(scan.task_log_result)
-            
+
             if not image:
                 continue
-            
+
             # need to check if we have the latest scan task, is it better to get latest first or to get all and then get the latest?
             task = scan
             logs = scan.task_log_result
+
             if image in all_status:
                 task, logs = WorkflowTaskStatus._latest_task(all_status[image].scan_task, all_status[image].scan_logs, scan, scan.task_log_result)
             else:
@@ -248,12 +254,8 @@ class WorkflowTaskStatus:
         except (AttributeError, CloudError) as e:
             logger.debug("%s Exception: %s", error_msg, e)
             raise AzCLIError(error_msg)
-
-        account_name, endpoint_suffix, container_name, blob_name, sas_token = get_blob_info(
-            log_file_sas)
-        AppendBlobService = get_sdk(cmd.cli_ctx, ResourceType.DATA_STORAGE, 'blob#AppendBlobService')
-        if not timeout:
-            timeout = ACR_RUN_DEFAULT_TIMEOUT_IN_SEC
+        except ResourceNotFoundError as e:
+            logger.debug(f"log file not found for run_id: {run_id}, registry: {registry_name}, resource_group: {resource_group_name} -- exception: {e}")
 
         run_status = TaskRunStatus.Running.value
         while await_task_run and WorkflowTaskStatus._evaluate_task_run_nonterminal_state(run_status):
@@ -262,13 +264,8 @@ class WorkflowTaskStatus:
                 logger.debug("Waiting for the task run to complete. Current status: %s", run_status)
                 time.sleep(2)
 
-        return WorkflowTaskStatus._download_logs(
-            AppendBlobService(
-                account_name=account_name,
-                sas_token=sas_token,
-                endpoint_suffix=endpoint_suffix),
-            container_name,
-            blob_name)
+        blobClient = get_sdk(cmd.cli_ctx, ResourceType.DATA_STORAGE_BLOB, '_blob_client#BlobClient')
+        return WorkflowTaskStatus._download_logs(blobClient.from_blob_url(log_file_sas))
     
     @staticmethod
     def _evaluate_task_run_nonterminal_state(run_status):
@@ -283,13 +280,12 @@ class WorkflowTaskStatus:
             return None
 
     @staticmethod
-    def _download_logs(blob_service,
-                       container_name,
-                       blob_name):
-        blob_text = blob_service.get_blob_to_text(
-            container_name=container_name,
-            blob_name=blob_name)
-        return WorkflowTaskStatus._remove_internal_acr_statements(blob_text.content)
+    def _download_logs(blob_service):
+        blob = blob_service.download_blob()
+        blob_text = blob.readall().decode('utf-8')
+        # return WorkflowTaskStatus._remove_internal_acr_statements(blob_text)
+        # not sure what is the point of this, might only make sense when we are doing dryrun and breaks other cases
+        return blob_text
 
     @staticmethod
     def _remove_internal_acr_statements(blob_content):

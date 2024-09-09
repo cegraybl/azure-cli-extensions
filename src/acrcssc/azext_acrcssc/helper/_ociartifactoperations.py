@@ -26,7 +26,7 @@ from ._constants import (
     SUBSCRIPTION
 )
 from ._utility import (
-    transform_cron_to_cadence,
+    transform_cron_to_schedule,
     get_task
 )
 
@@ -179,7 +179,7 @@ class ContinuousPatchConfig:
     def __init__(self):
         self.version = ""
         self.repositories = []
-        self.cadence = None
+        self.schedule = None
 
     @staticmethod
     def from_file(file_path, trigger_task=None):
@@ -209,7 +209,7 @@ class ContinuousPatchConfig:
         if trigger_task:
             trigger = trigger_task.trigger
             if trigger and trigger.timer_triggers:
-                config.cadence = transform_cron_to_cadence(trigger.timer_triggers[0].schedule, just_days=True)
+                config.schedule = transform_cron_to_schedule(trigger.timer_triggers[0].schedule, just_days=True)
 
         return config
 

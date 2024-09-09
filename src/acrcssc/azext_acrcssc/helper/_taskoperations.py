@@ -33,8 +33,7 @@ from azure.mgmt.core.tools import parse_resource_id
 from azext_acrcssc._client_factory import cf_acr_tasks, cf_authorization, cf_acr_registries_tasks, cf_acr_runs
 from azext_acrcssc.helper._deployment import validate_and_deploy_template
 from azext_acrcssc._validators import check_continuous_task_exists, check_continuous_task_config_exists
-from datetime import datetime, timezone
-from msrestazure.azure_exceptions import CloudError
+from datetime import datetime, timezone, timedelta
 from ._utility import convert_timespan_to_cron, transform_cron_to_schedule, create_temporary_dry_run_file, delete_temporary_dry_run_file
 from azext_acrcssc.helper._ociartifactoperations import create_oci_artifact_continuous_patch, get_oci_artifact_continuous_patch, delete_oci_artifact_continuous_patch
 from ._workflow_status import WorkflowTaskStatus
@@ -226,23 +225,23 @@ def track_scan_progress(cmd, resource_group_name, registry_name, status):
     return acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
 
 
-# don't want to destory existing work, will use this function to fix functionality and then point to the new function if it works
+# don't want to destroy existing work, will use this function to fix functionality and then point to the new function if it works
 def track_scan_progress_newer(cmd, resource_group_name, registry, status):
     logger.debug("Entering track_scan_progress_newer")
 
     config = get_oci_artifact_continuous_patch(cmd, registry)
     enabled_images = config.get_enabled_images()
-    return _retrieve_logs_for_image(cmd, registry, resource_group_name, enabled_images, config.cadence)
+    return _retrieve_logs_for_image(cmd, registry, resource_group_name, enabled_images, config.schedule)
 
 
-def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, cadence):
+def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, schedule):
     image_status = []
     acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
 
-    # get all the tasks executed since the last cadence, add a day to make sure we are not running into and edge case with the date
-    today = datetime.date.today()
-    # delta = datetime.timedelta(days=int(cadence) + 1)
-    delta = datetime.timedelta(days=int(cadence)) # use the cadence as is, we are running into issues we are querying too much and take time to filter
+    # get all the tasks executed since the last schedule, add a day to make sure we are not running into and edge case with the date
+    today = datetime.now(timezone.utc)
+    # delta = datetime.timedelta(days=int(schedule) + 1)
+    delta = timedelta(days=int(schedule))  # use the schedule as is, we are running into issues we are querying too much and take time to filter
     previous_date = today - delta
     previous_date_filter = previous_date.strftime('%Y-%m-%dT%H:%M:%SZ')
 
@@ -253,7 +252,7 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, cadence
         resource_group_name,
         taskname_filter=[CONTINUOSPATCH_TASK_SCANIMAGE_NAME],
         date_filter=previous_date_filter)
-    
+
     patch_taskruns = _get_taskruns_with_filter(
         acr_task_run_client,
         registry,
@@ -413,7 +412,7 @@ def _transform_task_list(tasks):
             "provisioningState": task.provisioning_state,
             "systemData": task.system_data,
             "schedule": None,
-            "description": CONTINUOUS_PATCH_WORKFLOW[task.name][DESCRIPTION]
+            "description": CONTINUOSPATCH_TASK_DEFINITION[task.name][DESCRIPTION]
         }
 
         # Extract schedule from trigger.timerTriggers if available
@@ -491,84 +490,6 @@ def _is_vault_secret(cmd, credential):
     if credential is not None:
         return keyvault_dns.upper() in credential.upper()
     return False
-
-
-def generate_logs(cmd,
-                  client,
-                  run_id,
-                  registry_name,
-                  resource_group_name,
-                  timeout=ACR_RUN_DEFAULT_TIMEOUT_IN_SEC,
-                  ):
-    log_file_sas = None
-    error_msg = "Could not get logs for ID: {}".format(run_id)
-    try:
-        response = client.get_log_sas_url(
-            resource_group_name=resource_group_name,
-            registry_name=registry_name,
-            run_id=run_id)
-        log_file_sas = response.log_link
-    except (AttributeError, CloudError) as e:
-        logger.debug(f"{error_msg} Exception: {e}")
-        raise AzCLIError(error_msg)
-
-    account_name, endpoint_suffix, container_name, blob_name, sas_token = get_blob_info(
-        log_file_sas)
-    AppendBlobService = get_sdk(cmd.cli_ctx, ResourceType.DATA_STORAGE, 'blob#AppendBlobService')
-    if not timeout:
-        timeout = ACR_RUN_DEFAULT_TIMEOUT_IN_SEC
-
-    run_status = TASK_RUN_STATUS_RUNNING
-    while _evaluate_task_run_nonterminal_state(run_status):
-        run_status = _get_run_status(client, resource_group_name, registry_name, run_id)
-        if _evaluate_task_run_nonterminal_state(run_status):
-            logger.debug(f"Waiting for the task run to complete. Current status: {run_status}")
-            time.sleep(2)
-
-    _download_logs(AppendBlobService(
-        account_name=account_name,
-        sas_token=sas_token,
-        endpoint_suffix=endpoint_suffix),
-        container_name,
-        blob_name)
-
-
-def _evaluate_task_run_nonterminal_state(run_status):
-    return run_status != TASK_RUN_STATUS_SUCCESS and run_status != TASK_RUN_STATUS_FAILED
-
-
-def _get_run_status(client, resource_group_name, registry_name, run_id):
-    try:
-        response = client.get(resource_group_name, registry_name, run_id)
-        return response.status
-    except (AttributeError, CloudError):
-        return None
-
-
-def _download_logs(blob_service,
-                   container_name,
-                   blob_name):
-    blob_text = blob_service.get_blob_to_text(
-        container_name=container_name,
-        blob_name=blob_name)
-    _remove_internal_acr_statements(blob_text.content)
-
-
-def _remove_internal_acr_statements(blob_content):
-    lines = blob_content.split("\n")
-    starting_identifier = "DRY RUN mode enabled"
-    terminating_identifier = "Total matches found"
-    print_line = False
-
-    for line in lines:
-        if line.startswith(starting_identifier):
-            print_line = True
-        elif line.startswith(terminating_identifier):
-            print(line)
-            print_line = False
-
-        if print_line:
-            print(line)
 
 
 def get_next_date(cron_expression):
