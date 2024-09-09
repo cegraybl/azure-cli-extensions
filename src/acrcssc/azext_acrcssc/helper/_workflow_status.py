@@ -117,10 +117,20 @@ class WorkflowTaskStatus:
     # this extracts the image from the copacetic task logs, using this when we only have a repository name and a wildcard tag
     @staticmethod
     def _get_image_from_tasklog(logs):
-        match = re.search(r'Scanning image for vulnerability and patch (\S+) for tag \S+', logs)
-        if not match:
-            match = re.search(r'Scan, Upload scan report and Schedule Patch for (\S+)', logs)
+        match = re.search(r'Scanning repo: (\S+), Tag:\S+, OriginalTag:(\S+)', logs)
+        if match:
+            repository = match.group(1)
+            original_tag = match.group(2)
+            return f"{repository}:{original_tag}"
 
+        match = re.search(r'Scanning image for vulnerability and patch (\S+) for tag (\S+)', logs)
+        if match:
+            patched_image = match.group(1)
+            original_tag = match.group(2)
+            repository = patched_image.split(':')[0]
+            return f"{repository}:{original_tag}"
+
+        match = re.search(r'Scan, Upload scan report and Schedule Patch for (\S+)', logs)
         if match:
             return match.group(1)
         return None
@@ -135,6 +145,15 @@ class WorkflowTaskStatus:
         return None
 
     def _get_patched_image_name_from_tasklog(self):
+        if self.scan_task is None:
+            return None
+
+        match = re.search(r'Scanning repo: (\S+), Tag:(\S+), OriginalTag:\S+', self.scan_logs)
+        if match:
+            repository = match.group(1)
+            patched_tag = match.group(2)
+            return f"{repository}:{patched_tag}"
+
         if self.patch_task is None:
             return None
 
@@ -188,6 +207,10 @@ class WorkflowTaskStatus:
         all_status = {}
 
         for scan in scan_taskruns:
+            if not hasattr(scan, 'task_log_result'):
+                logger.debug(f"Scan Taskrun: {scan.run_id} has no logs, silent failure")
+                continue
+            
             image = WorkflowTaskStatus._get_image_from_tasklog(scan.task_log_result)
 
             if not image:
@@ -219,7 +242,7 @@ class WorkflowTaskStatus:
         patch_status = self.patch_status()
         patch_date = "" if self.patch_task is None else self.patch_task.create_time
         patch_task_id = "" if self.patch_task is None else self.patch_task.run_id
-        patched_image = self._get_patched_image_name_from_tasklog() if self.patch_task is not None else ""
+        patched_image = self._get_patched_image_name_from_tasklog()
         workflow_type = CSSCTaskTypes.ContinuousPatchV1.value
 
         return f"image: {self.repository}:{self.tag}\n" \

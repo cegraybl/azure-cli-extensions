@@ -100,8 +100,7 @@ def delete_acrcssc(cmd,
     registry = acr_client_registries.get(resource_group_name, registry_name)
 
     from azure.cli.core.util import user_confirmation
-    user_confirmation(f"Are you sure you want to delete the workflow {CONTINUOUS_PATCHING_WORKFLOW_NAME}" +
-                      f" from registry {registry_name}?")
+    user_confirmation(f"Are you sure you want to delete the workflow {CONTINUOUS_PATCHING_WORKFLOW_NAME} from registry {registry_name}?")
 
     delete_continuous_patch_v1(cmd, registry, False)
     print(f"Deleted {CONTINUOUS_PATCHING_WORKFLOW_NAME} workflow successfully from registry {registry_name}")
