@@ -57,10 +57,10 @@ helps['acr supply-chain workflow cancel-run'] = """
           text: az acr supply-chain workflow cancel-run -r $MyRegistry -g $MyResourceGroup --type continuouspatchv1
 """
 
-helps['acr supply-chain workflow track-status'] = """
+helps['acr supply-chain workflow list'] = """
     type: command
-    short-summary: Track status of acr supply chain workflow tasks.
+    short-summary: List status of acr supply chain workflow images.
     examples:
-        - name: Track all acr supply chain workflow tasks based on the status provided
-          text: az acr supply-chain workflow track-status -r $MyRegistry -g $MyResourceGroup --type continuouspatchv1 --status Failed
+        - name: List all acr supply chain workflow images based on the status provided
+          text: az acr supply-chain workflow list -r $MyRegistry -g $MyResourceGroup --type continuouspatchv1 --run-status Failed
 """

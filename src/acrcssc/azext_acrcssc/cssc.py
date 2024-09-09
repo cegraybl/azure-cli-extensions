@@ -131,7 +131,7 @@ def cancel_runs(cmd,
     cancel_continuous_patch_runs(cmd, resource_group_name, registry_name)
 
 
-def track_scan_status(cmd, registry_name, resource_group_name, status, workflow_type):
+def list_scan_status(cmd, registry_name, resource_group_name, status, workflow_type):
     '''track in continuous patch in the registry.'''
     logger.debug('Entering track_scan_status with parameters:%s %s %s', resource_group_name, registry_name, workflow_type)
     

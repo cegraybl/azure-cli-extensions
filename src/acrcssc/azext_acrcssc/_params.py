@@ -30,5 +30,5 @@ def load_arguments(self: AzCommandsLoader, _):
         c.argument("run_immediately", options_list=["--run-immediately"], help="Set this flag to trigger the immediate run of the selected workflow task. Default value: false.", arg_type=get_three_state_flag(), required=False)
         c.argument("dryrun", options_list=["--dry-run"], help="Use this flag to see the qualifying repositories and tags that would be affected by the workflow. Default value: false. 'config' parameter is mandatory to provide with dry-run", arg_type=get_three_state_flag(), required=False)
     
-    with self.argument_context("acr supply-chain workflow track-status") as c:
-        c.argument("status", arg_type=get_enum_type(WorkflowTaskState), options_list=["--status"], help="Status to filter the supply-chain workflow tasks.", required=True)
+    with self.argument_context("acr supply-chain workflow list") as c:
+        c.argument("status", arg_type=get_enum_type(WorkflowTaskState), options_list=["--run-status"], help="Status to filter the supply-chain workflow image status.", required=True)
