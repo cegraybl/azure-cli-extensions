@@ -263,8 +263,7 @@ class WorkflowTaskStatus:
         run_id,
         registry_name,
         resource_group_name,
-        await_task_run=True,
-        timeout=ACR_RUN_DEFAULT_TIMEOUT_IN_SEC):
+        await_task_run=True):
 
         log_file_sas = None
         error_msg = "Could not get logs for ID: {}".format(run_id)
