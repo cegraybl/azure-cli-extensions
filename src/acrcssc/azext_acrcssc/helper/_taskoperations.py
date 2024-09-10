@@ -28,6 +28,7 @@ from ._constants import (
 from azure.cli.core.azclierror import AzCLIError
 from azure.cli.core.commands import LongRunningOperation
 from azure.cli.command_modules.acr._utils import prepare_source_location
+from azure.cli.core.commands.progress import IndeterminateProgressBar
 from azure.core.exceptions import ResourceNotFoundError
 from azure.mgmt.core.tools import parse_resource_id
 from azext_acrcssc._client_factory import cf_acr_tasks, cf_authorization, cf_acr_registries_tasks, cf_acr_runs
@@ -263,13 +264,16 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, schedul
     ## another way that we might speed things up is, instead of doing n^2 check while matching image to task, is to get all the logs, and start populating with the logs that we have, and use that to match the image to the task, instead than the task to the image
     ## one more way, get all the logs first (multiple threads), and then match the logs to the images, this way we can get the logs faster, and then match them to the images however we want
     ## another thing, separate the patch and the scan logs, no need to double the search space just for the hell of it. The scanning task will have info on the patching task (runid it trigerred), so we can use that to match the logs and make it easier
-    # start_time = time.time()
+    start_time = time.time()
 
+    progress_indicator = IndeterminateProgressBar(cmd.cli_ctx, "Retrieving logs for images")
+    progress_indicator.begin()
     image_status = WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, images, scan_taskruns, patch_taskruns)
+    progress_indicator.end()
 
-    # end_time = time.time()
-    # execution_time = end_time - start_time
-    # print(f"Execution time: {execution_time} seconds / images processed: {len(images)} / tasks filtered: {len(scan_taskruns)} + {len(patch_taskruns)}")
+    end_time = time.time()
+    execution_time = end_time - start_time
+    logger.debug(f"Execution time: {execution_time} seconds / images processed: {len(images)} / tasks filtered: {len(scan_taskruns)} + {len(patch_taskruns)}")
     return image_status
 
 

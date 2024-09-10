@@ -52,7 +52,7 @@ CONTINUOUSPATCH_TASK_PATCHIMAGE_DESCRIPTION = "This task will patch the OS vulne
 CONTINUOSPATCH_TASK_SCANIMAGE_NAME = "cssc-scan-image"
 CONTINUOUSPATCH_TASK_SCANIMAGE_DESCRIPTION = f"This task will perform vulnerability OS scan on a given image using Trivy. If there are any vulnerabilities found, it will trigger the patching task using {CONTINUOSPATCH_TASK_PATCHIMAGE_NAME} task."
 CONTINUOSPATCH_TASK_SCANREGISTRY_NAME = "cssc-trigger-workflow"
-CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION = f"This task will trigger the coninuous patching workflow based on the schedule set during the creation. It will match the filter repositories set with config parameter and schedule vulnerability scan check using {CONTINUOSPATCH_TASK_SCANIMAGE_NAME} task."
+CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION = f"This task will trigger the continuous patching workflow based on the schedule set during the creation. It will match the filter repositories set with config parameter and schedule vulnerability scan check using {CONTINUOSPATCH_TASK_SCANIMAGE_NAME} task."
 CONTINUOUS_PATCHING_WORKFLOW_NAME = CSSCTaskTypes.ContinuousPatchV1.value
 DESCRIPTION = "Description"
 

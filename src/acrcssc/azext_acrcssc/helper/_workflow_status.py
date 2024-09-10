@@ -144,14 +144,24 @@ class WorkflowTaskStatus:
             return match.group(1)
         return None
 
+    def _get_scanning_repo_from_scan_task(self):
+        if self.scan_task is None:
+            return None
+
+        match = re.search(r'Scanning repo: (\S+), Tag:(\S+), OriginalTag:(\S+)', self.scan_logs)
+        if match:
+            repository = match.group(1)
+            patched_tag = match.group(2)
+            original_tag = match.group(3)
+            return repository, patched_tag, original_tag
+        return None
+
     def _get_patched_image_name_from_tasklog(self):
         if self.scan_task is None:
             return None
 
-        match = re.search(r'Scanning repo: (\S+), Tag:(\S+), OriginalTag:\S+', self.scan_logs)
-        if match:
-            repository = match.group(1)
-            patched_tag = match.group(2)
+        repository, patched_tag, _ = self._get_scanning_repo_from_scan_task()
+        if repository is not None and patched_tag is not None:
             return f"{repository}:{patched_tag}"
 
         if self.patch_task is None:
@@ -244,6 +254,11 @@ class WorkflowTaskStatus:
         patch_task_id = "" if self.patch_task is None else self.patch_task.run_id
         patched_image = self._get_patched_image_name_from_tasklog()
         workflow_type = CSSCTaskTypes.ContinuousPatchV1.value
+
+        # this situation means that we don't have a patched image
+        if patched_image == self.image():
+            # this is just temporary to exemplify the situation
+            patched_image = "---No Patching Required---"
 
         return f"image: {self.repository}:{self.tag}\n" \
                f"\tscan status: {scan_status}\n" \
