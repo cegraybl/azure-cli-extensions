@@ -71,16 +71,16 @@ class WorkflowTaskStatus:
             return WorkflowTaskState.UNKNOWN.value
 
         status = task.status.lower()
-        if status == TaskRunStatus.Succeeded.value:
+        if status == TaskRunStatus.Succeeded.value.lower():
             return WorkflowTaskState.SUCCEEDED.value
 
-        if status == TaskRunStatus.Running.value or status == TaskRunStatus.Started.value:
+        if status == TaskRunStatus.Running.value.lower() or status == TaskRunStatus.Started.value.lower():
             return WorkflowTaskState.RUNNING.value
 
-        if status == TaskRunStatus.Queued.value:
+        if status == TaskRunStatus.Queued.value.lower():
             return WorkflowTaskState.QUEUED.value
 
-        if status == TaskRunStatus.Failed.value or status == TaskRunStatus.Canceled.value or status == TaskRunStatus.Error.value or status == TaskRunStatus.Timeout.value:
+        if status == TaskRunStatus.Failed.value.lower() or status == TaskRunStatus.Canceled.value.lower() or status == TaskRunStatus.Error.value.lower() or status == TaskRunStatus.Timeout.value.lower():
             return WorkflowTaskState.FAILED.value
 
         return WorkflowTaskState.UNKNOWN.value

@@ -17,15 +17,15 @@ class CSSCTaskTypes(Enum):
 
 class TaskRunStatus(Enum):
     """Enum for the task status. From Build\src\ACR.Build.Contracts\src\Status.cs"""
-    Unknown = 'unknown'
-    Queued = 'queued'
-    Started = 'started'
-    Running = 'running'
-    Succeeded = 'succeeded'
-    Failed = 'failed'
-    Canceled = 'canceled'
-    Error = 'error'
-    Timeout = 'timeout'
+    Unknown = 'Unknown'
+    Queued = 'Queued'
+    Started = 'Started'
+    Running = 'Running'
+    Succeeded = 'Succeeded'
+    Failed = 'Failed'
+    Canceled = 'Canceled'
+    Error = 'Error'
+    Timeout = 'Timeout'
 
 
 # General Constants

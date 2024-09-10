@@ -24,7 +24,8 @@ from ._constants import (
     CSSC_WORKFLOW_POLICY_REPOSITORY,
     CONTINUOSPATCH_TASK_PATCHIMAGE_NAME,
     CONTINUOSPATCH_TASK_SCANIMAGE_NAME,
-    DESCRIPTION)
+    DESCRIPTION,
+    TaskRunStatus)
 from azure.cli.core.azclierror import AzCLIError
 from azure.cli.core.commands import LongRunningOperation
 from azure.cli.command_modules.acr._utils import prepare_source_location
@@ -209,13 +210,17 @@ def acr_cssc_dry_run(cmd, registry, config_file_path, is_create=True):
 def cancel_continuous_patch_runs(cmd, resource_group_name, registry_name):
     logger.debug("Entering cancel_continuous_patch_v1")
     acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
-    list_filter_str = f"(contains(['Running', 'Queued', 'Started'], Status)) and (contains(['{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}', '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}'], TaskName))"
-    top = 1000
-    running_tasks = acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
+    running_tasks = _get_taskruns_with_filter(
+        acr_task_run_client,
+        registry_name=registry_name,
+        resource_group_name=resource_group_name,
+        status_filter=[TaskRunStatus.Running.value, TaskRunStatus.Queued.value, TaskRunStatus.Started.value],
+        taskname_filter=[CONTINUOSPATCH_TASK_SCANREGISTRY_NAME, CONTINUOSPATCH_TASK_SCANIMAGE_NAME, CONTINUOSPATCH_TASK_PATCHIMAGE_NAME])
+    
     for task in running_tasks:
         logger.warning("Sending request to cancel task %s", task.name)
         acr_task_run_client.begin_cancel(resource_group_name, registry_name, task.name)
-    logger.warning("All active running patching tasks with have been cancelled.")
+    logger.warning("All active running workflow tasks have been cancelled.")
 
 
 def track_scan_progress(cmd, resource_group_name, registry, status):
@@ -240,14 +245,14 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, schedule, workf
     # th API returns an iterator, if we want to be able to modify it, we need to convert it to a list
     scan_taskruns = _get_taskruns_with_filter(
         acr_task_run_client,
-        registry,
+        registry.name,
         resource_group_name,
         taskname_filter=[CONTINUOSPATCH_TASK_SCANIMAGE_NAME],
         date_filter=previous_date_filter)
 
     patch_taskruns = _get_taskruns_with_filter(
         acr_task_run_client,
-        registry,
+        registry.name,
         resource_group_name,
         taskname_filter=[CONTINUOSPATCH_TASK_PATCHIMAGE_NAME],
         date_filter=previous_date_filter)
@@ -275,7 +280,7 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, schedule, workf
     return image_status
 
 
-def _get_taskruns_with_filter(acr_task_run_client, registry, resource_group_name, taskname_filter=None, date_filter=None, status_filter=None, top=1000):
+def _get_taskruns_with_filter(acr_task_run_client, registry_name, resource_group_name, taskname_filter=None, date_filter=None, status_filter=None, top=1000):
     # filters found in ACR.BuildRP.DataModels\src\v18_09_GA\RunFilter.cs
     #list_filter_str = f"TaskName in ('{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}') and createTime ge {previous_date_filter}"
     filter = ""
@@ -294,7 +299,7 @@ def _get_taskruns_with_filter(acr_task_run_client, registry, resource_group_name
         status_filter_str = "', '".join(status_filter)
         filter += f"Status in ('{status_filter_str}')"
 
-    taskruns = acr_task_run_client.list(resource_group_name, registry.name, filter=filter, top=top)
+    taskruns = acr_task_run_client.list(resource_group_name, registry_name, filter=filter, top=top)
     return list(taskruns)
 
 
