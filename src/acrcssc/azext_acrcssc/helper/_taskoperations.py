@@ -29,7 +29,6 @@ from ._constants import (
 from azure.cli.core.azclierror import AzCLIError
 from azure.cli.core.commands import LongRunningOperation
 from azure.cli.command_modules.acr._utils import prepare_source_location
-from azure.cli.core.commands.progress import IndeterminateProgressBar
 from azure.core.exceptions import ResourceNotFoundError
 from azure.mgmt.core.tools import parse_resource_id
 from azext_acrcssc._client_factory import cf_acr_tasks, cf_authorization, cf_acr_registries_tasks, cf_acr_runs
@@ -227,7 +226,7 @@ def track_scan_progress(cmd, resource_group_name, registry, status):
     logger.debug("Entering track_scan_progress")
 
     config = get_oci_artifact_continuous_patch(cmd, registry)
-    
+
     return _retrieve_logs_for_image(cmd, registry, resource_group_name, config.schedule, status)
 
 
@@ -257,15 +256,13 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, schedule, workf
         taskname_filter=[CONTINUOSPATCH_TASK_PATCHIMAGE_NAME],
         date_filter=previous_date_filter)
 
-    ## another way that we might speed things up is, instead of doing n^2 check while matching image to task, is to get all the logs, and start populating with the logs that we have, and use that to match the image to the task, instead than the task to the image
-    ## one more way, get all the logs first (multiple threads), and then match the logs to the images, this way we can get the logs faster, and then match them to the images however we want
-    ## another thing, separate the patch and the scan logs, no need to double the search space just for the hell of it. The scanning task will have info on the patching task (runid it trigerred), so we can use that to match the logs and make it easier
     start_time = time.time()
 
-    progress_indicator = IndeterminateProgressBar(cmd.cli_ctx, "Retrieving logs for images")
+    progress_indicator = cmd.cli_ctx.get_progress_controller()
+    progress_indicator.add()
     progress_indicator.begin()
-    
-    image_status = WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, scan_taskruns, patch_taskruns, progress_indicator)
+
+    image_status = WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, scan_taskruns, patch_taskruns, progress_indicator=progress_indicator)
     if workflow_status:
         filtered_image_status = [image for image in image_status if image.status() == workflow_status]
         image_status = filtered_image_status
@@ -273,10 +270,10 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, schedule, workf
     end_time = time.time()
     execution_time = end_time - start_time
     logger.debug(f"Execution time: {execution_time} seconds / tasks filtered: {len(scan_taskruns)} + {len(patch_taskruns)}")
-    
+
     progress_indicator.stop()
     progress_indicator.end()
-    
+
     return image_status
 
 

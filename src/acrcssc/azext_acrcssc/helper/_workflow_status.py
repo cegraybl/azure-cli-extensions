@@ -199,7 +199,7 @@ class WorkflowTaskStatus:
             futures = []
             for taskrun in taskruns:
                 if progress_indicator:
-                    progress_indicator.update_progress()
+                    progress_indicator.update()
 
                 future = executor.submit(process_taskrun, taskrun)
                 futures.append(future)
@@ -215,11 +215,11 @@ class WorkflowTaskStatus:
 
         for scan in scan_taskruns:
             if progress_indicator:
-                progress_indicator.update_progress()
+                progress_indicator.update()
             if not hasattr(scan, 'task_log_result'):
                 logger.debug(f"Scan Taskrun: {scan.run_id} has no logs, silent failure")
                 continue
-            
+
             image = WorkflowTaskStatus._get_image_from_tasklog(scan.task_log_result)
 
             if not image:
@@ -256,8 +256,11 @@ class WorkflowTaskStatus:
 
         # this situation means that we don't have a patched image
         if patched_image == self.image():
-            # this is just temporary to exemplify the situation
-            patched_image = "---No Patching Required---"
+            # these are just temporary to exemplify the situation
+            if self.patch_status() == WorkflowTaskState.SUCCEEDED.value:
+                patched_image = "---No Patching Required---"
+            if self.patch_status() == WorkflowTaskState.FAILED.value:
+                patched_image = "---Patch Failed---"
 
         return f"image: {self.repository}:{self.tag}\n" \
                f"\tscan status: {scan_status}\n" \
