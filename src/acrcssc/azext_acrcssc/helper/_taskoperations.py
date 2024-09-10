@@ -218,24 +218,15 @@ def cancel_continuous_patch_runs(cmd, resource_group_name, registry_name):
     logger.warning("All active running patching tasks with have been cancelled.")
 
 
-def track_scan_progress(cmd, resource_group_name, registry_name, status):
+def track_scan_progress(cmd, resource_group_name, registry, status):
     logger.debug("Entering track_scan_progress")
-    acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
-    list_filter_str = f"Status eq '{status}' and (contains(['{CONTINUOSPATCH_TASK_SCANREGISTRY_NAME}', '{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}'], TaskName))"
-    top = 1000
-    return acr_task_run_client.list(resource_group_name, registry_name, filter=list_filter_str, top=top)
-
-
-# don't want to destroy existing work, will use this function to fix functionality and then point to the new function if it works
-def track_scan_progress_newer(cmd, resource_group_name, registry, status):
-    logger.debug("Entering track_scan_progress_newer")
 
     config = get_oci_artifact_continuous_patch(cmd, registry)
-    enabled_images = config.get_enabled_images()
-    return _retrieve_logs_for_image(cmd, registry, resource_group_name, enabled_images, config.schedule)
+    
+    return _retrieve_logs_for_image(cmd, registry, resource_group_name, config.schedule, status)
 
 
-def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, schedule):
+def _retrieve_logs_for_image(cmd, registry, resource_group_name, schedule, workflow_status=None):
     image_status = []
     acr_task_run_client = cf_acr_runs(cmd.cli_ctx)
 
@@ -268,12 +259,19 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, images, schedul
 
     progress_indicator = IndeterminateProgressBar(cmd.cli_ctx, "Retrieving logs for images")
     progress_indicator.begin()
-    image_status = WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, images, scan_taskruns, patch_taskruns)
-    progress_indicator.end()
+    
+    image_status = WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, scan_taskruns, patch_taskruns, progress_indicator)
+    if workflow_status:
+        filtered_image_status = [image for image in image_status if image.status() == workflow_status]
+        image_status = filtered_image_status
 
     end_time = time.time()
     execution_time = end_time - start_time
-    logger.debug(f"Execution time: {execution_time} seconds / images processed: {len(images)} / tasks filtered: {len(scan_taskruns)} + {len(patch_taskruns)}")
+    logger.debug(f"Execution time: {execution_time} seconds / tasks filtered: {len(scan_taskruns)} + {len(patch_taskruns)}")
+    
+    progress_indicator.stop()
+    progress_indicator.end()
+    
     return image_status
 
 

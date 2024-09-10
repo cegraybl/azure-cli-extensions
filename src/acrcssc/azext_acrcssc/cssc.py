@@ -12,7 +12,7 @@ from .helper._taskoperations import (
     list_continuous_patch_v1,
     acr_cssc_dry_run,
     cancel_continuous_patch_runs,
-    track_scan_progress_newer
+    track_scan_progress
 )
 from ._validators import (
     validate_inputs,
@@ -133,14 +133,13 @@ def cancel_runs(cmd,
 def list_scan_status(cmd, registry_name, resource_group_name, status, workflow_type):
     '''track in continuous patch in the registry.'''
     logger.debug('Entering track_scan_status with parameters:%s %s %s', resource_group_name, registry_name, workflow_type)
-    
-    #this is the old version of the function, lets try to create a new one that does what we want
-    #return track_scan_progress(cmd, resource_group_name, registry_name, status)
-    
+
     validate_task_type(workflow_type)
     acr_client_registries = cf_acr_registries(cmd.cli_ctx, None)
     registry = acr_client_registries.get(resource_group_name, registry_name)
     
-    # return track_scan_progress_newer(cmd, resource_group_name, registry, status)
-    for image in track_scan_progress_newer(cmd, resource_group_name, registry, status):
+    image_status = track_scan_progress(cmd, resource_group_name, registry, status)
+    for image in image_status:
         print(image)
+    
+    print(f"Total images: {len(image_status)}")

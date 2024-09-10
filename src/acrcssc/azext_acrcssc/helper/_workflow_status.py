@@ -182,10 +182,10 @@ class WorkflowTaskStatus:
         return (this_task, this_log) if this_task.create_time > that_task.create_time else (that_task, that_log)
 
     @staticmethod
-    def _retrieve_all_tasklogs(cmd, taskrun_client, registry, taskruns):
+    def _retrieve_all_tasklogs(cmd, taskrun_client, registry, taskruns, progress_indicator=None):
         import concurrent.futures
         resource_group = parse_resource_id(registry.id)[RESOURCE_GROUP]
-        
+
         def process_taskrun(taskrun):
             try:
                 tasklog = WorkflowTaskStatus.generate_logs(cmd, taskrun_client, taskrun.run_id, registry.name, resource_group, await_task_run=False)
@@ -198,25 +198,24 @@ class WorkflowTaskStatus:
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
             for taskrun in taskruns:
+                if progress_indicator:
+                    progress_indicator.update_progress()
+
                 future = executor.submit(process_taskrun, taskrun)
                 futures.append(future)
 
             # Wait for all threads to complete
             concurrent.futures.wait(futures)
 
-    # a different/better approach might be to have this functions just get all tasks/logs related to the image, and then have a different function to filter it to the latest logs
-    # that way with images with a '*' tag we can deffer the filtering to a later stage
-    # for now leave it as is, get a single log, we will figure it out later. Just want to see it working
+
     @staticmethod
-    def from_taskrun(cmd, taskrun_client, registry, images, scan_taskruns, patch_taskruns):
-        # start_time = time.time()
-        # get logs for all scans, we will match to the patches later
-        WorkflowTaskStatus._retrieve_all_tasklogs(cmd, taskrun_client, registry, scan_taskruns)
-        # end_time = time.time()
-        # execution_time = end_time - start_time
+    def from_taskrun(cmd, taskrun_client, registry, scan_taskruns, patch_taskruns, progress_indicator=None):
+        WorkflowTaskStatus._retrieve_all_tasklogs(cmd, taskrun_client, registry, scan_taskruns, progress_indicator)
         all_status = {}
 
         for scan in scan_taskruns:
+            if progress_indicator:
+                progress_indicator.update_progress()
             if not hasattr(scan, 'task_log_result'):
                 logger.debug(f"Scan Taskrun: {scan.run_id} has no logs, silent failure")
                 continue
