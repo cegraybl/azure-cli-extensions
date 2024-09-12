@@ -16,7 +16,7 @@ class CSSCTaskTypes(Enum):
 
 
 class TaskRunStatus(Enum):
-    """Enum for the task status. From Build\src\ACR.Build.Contracts\src\Status.cs"""
+    """Enum for the task status. ACR.Build.Contracts"""
     Unknown = 'Unknown'
     Queued = 'Queued'
     Started = 'Started'

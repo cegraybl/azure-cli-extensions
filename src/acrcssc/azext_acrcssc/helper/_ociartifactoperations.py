@@ -203,7 +203,8 @@ class ContinuousPatchConfig:
         config.version = json_config.get("version", "")
         repositories = json_config.get("repositories", [])
         for repo in repositories:
-            repository = Repository(repo["repository"], repo["tags"], repo["enabled"])
+            enabled = repo.get("enabled", True)  # optional field, default to True
+            repository = Repository(repo["repository"], repo["tags"], enabled)
             config.repositories.append(repository)
 
         if trigger_task:
