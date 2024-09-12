@@ -196,7 +196,7 @@ class ContinuousPatchConfig:
             json_config = json.loads(json_str)
             validate(json_config, CONTINUOUSPATCH_CONFIG_SCHEMA_V1)
         except Exception as e:
-            logger.debug("Error validating the continuous patch config file: %s", e)
+            logger.error("Error validating the continuous patch config file: %s", e)
             return None
 
         config = ContinuousPatchConfig()

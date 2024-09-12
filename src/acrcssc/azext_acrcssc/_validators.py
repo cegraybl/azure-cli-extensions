@@ -59,7 +59,7 @@ def _validate_continuouspatch_json(config_path):
             validate(config, CONTINUOUSPATCH_CONFIG_SCHEMA_V1)
             return config
     except Exception as e:
-        logger.debug(f"Error validating the continuous patch config file: {e}")
+        logger.error(f"Error validating the continuous patch config file: {e}")
         raise InvalidArgumentValueError("File used for --config is not a valid config JSON file. Use --help to see the schema of the config file.")
     finally:
         f.close()
