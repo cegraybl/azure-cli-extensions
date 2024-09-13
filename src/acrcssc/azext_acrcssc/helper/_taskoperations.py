@@ -71,7 +71,7 @@ def create_update_continuous_patch_v1(cmd, registry, cssc_config_file, schedule,
         trigger = task.trigger
         if trigger and trigger.timer_triggers:
             schedule_cron_expression = trigger.timer_triggers[0].schedule
-            
+
     next_date = get_next_date(schedule_cron_expression)
     print(f"Continuous Patching workflow scheduled to run next at: {next_date} UTC")
 
@@ -215,7 +215,7 @@ def cancel_continuous_patch_runs(cmd, resource_group_name, registry_name):
         resource_group_name=resource_group_name,
         status_filter=[TaskRunStatus.Running.value, TaskRunStatus.Queued.value, TaskRunStatus.Started.value],
         taskname_filter=[CONTINUOSPATCH_TASK_SCANREGISTRY_NAME, CONTINUOSPATCH_TASK_SCANIMAGE_NAME, CONTINUOSPATCH_TASK_PATCHIMAGE_NAME])
-    
+
     for task in running_tasks:
         logger.warning("Sending request to cancel task %s", task.name)
         acr_task_run_client.begin_cancel(resource_group_name, registry_name, task.name)
@@ -278,8 +278,7 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, schedule, workf
 
 
 def _get_taskruns_with_filter(acr_task_run_client, registry_name, resource_group_name, taskname_filter=None, date_filter=None, status_filter=None, top=1000):
-    # filters found in ACR.BuildRP.DataModels\src\v18_09_GA\RunFilter.cs
-    #list_filter_str = f"TaskName in ('{CONTINUOSPATCH_TASK_SCANIMAGE_NAME}', '{CONTINUOSPATCH_TASK_PATCHIMAGE_NAME}') and createTime ge {previous_date_filter}"
+    # filters based on OData, found in ACR.BuildRP.DataModels - RunFilter.cs
     filter = ""
     if taskname_filter:
         taskname_filter_str = "', '".join(taskname_filter)

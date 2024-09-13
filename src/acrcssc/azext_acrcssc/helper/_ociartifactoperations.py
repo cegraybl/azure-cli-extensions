@@ -87,7 +87,7 @@ def get_oci_artifact_continuous_patch(cmd, registry):
         raise AzCLIError(f"Failed to get OCI artifact from ACR: {exception}")
     finally:
         oras_client.logout(hostname=str.lower(registry.login_server))
-        
+
     return config
 
 
@@ -222,7 +222,7 @@ class ContinuousPatchConfig:
                     image = f"{repository.repository}:{tag}"
                     enabled_images.append(image)
         return enabled_images
-    
+
 
 class Repository:
     def __init__(self, repository, tags, enabled):

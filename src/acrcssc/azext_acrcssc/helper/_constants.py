@@ -78,13 +78,13 @@ CONTINUOSPATCH_TASK_DEFINITION = {
     CONTINUOSPATCH_TASK_SCANIMAGE_NAME:
         {
             "parameter_name": "imageScanningEncodedTask",
-            "template_file": f"task/cssc_scan_image.yaml",
+            "template_file": "task/cssc_scan_image.yaml",
             DESCRIPTION: CONTINUOUSPATCH_TASK_SCANIMAGE_DESCRIPTION
         },
     CONTINUOSPATCH_TASK_SCANREGISTRY_NAME:
         {
             "parameter_name": "registryScanningEncodedTask",
-            "template_file": f"task/cssc_trigger_workflow.yaml",
+            "template_file": "task/cssc_trigger_workflow.yaml",
             DESCRIPTION: CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION
         },
 }

@@ -9,14 +9,10 @@
 import time
 import re
 from ._constants import (
-    CONTINUOSPATCH_TASK_PATCHIMAGE_NAME,
-    CONTINUOSPATCH_TASK_SCANIMAGE_NAME,
     RESOURCE_GROUP,
     CSSCTaskTypes,
     TaskRunStatus)
-from azure.cli.command_modules.acr._constants import ACR_RUN_DEFAULT_TIMEOUT_IN_SEC
 from azure.cli.core.profiles import ResourceType, get_sdk
-from azure.cli.command_modules.acr._azure_utils import get_blob_info
 from azure.cli.core.azclierror import AzCLIError
 from azure.mgmt.core.tools import parse_resource_id
 from azure.core.exceptions import ResourceNotFoundError
@@ -172,7 +168,6 @@ class WorkflowTaskStatus:
             return match.group(1)
         return None
 
-
     @staticmethod
     def _latest_task(this_task, this_log, that_task, that_log):
         if this_task is None:
@@ -206,7 +201,6 @@ class WorkflowTaskStatus:
 
             # Wait for all threads to complete
             concurrent.futures.wait(futures)
-
 
     @staticmethod
     def from_taskrun(cmd, taskrun_client, registry, scan_taskruns, patch_taskruns, progress_indicator=None):
@@ -272,15 +266,8 @@ class WorkflowTaskStatus:
                f"\tpatched image: {patched_image}\n" \
                f"\tworkflow type: {workflow_type}"
 
-
     @staticmethod
-    def generate_logs(
-        cmd,
-        client,
-        run_id,
-        registry_name,
-        resource_group_name,
-        await_task_run=True):
+    def generate_logs(cmd, client, run_id, registry_name, resource_group_name, await_task_run=True):
 
         log_file_sas = None
         error_msg = "Could not get logs for ID: {}".format(run_id)
@@ -305,11 +292,11 @@ class WorkflowTaskStatus:
 
         blobClient = get_sdk(cmd.cli_ctx, ResourceType.DATA_STORAGE_BLOB, '_blob_client#BlobClient')
         return WorkflowTaskStatus._download_logs(blobClient.from_blob_url(log_file_sas))
-    
+
     @staticmethod
     def _evaluate_task_run_nonterminal_state(run_status):
         return run_status != TaskRunStatus.Succeeded.value and run_status != TaskRunStatus.Failed.value
-    
+
     @staticmethod
     def _get_run_status_local(client, resource_group_name, registry_name, run_id):
         try:

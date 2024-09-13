@@ -74,8 +74,8 @@ def _validate_continuouspatch_config(config):
                 raise InvalidArgumentValueError(f"Configuration error: Repository {repository['repository']} Tag {tag} is not allowed. Tags ending with '*-patched' (floating tag) or '*-[0-9]\\{{1,3}}' (incremental tag) are reserved for internal use.")
             if tag == "*" and len(repository.get("tags", [])) > 1:
                 raise InvalidArgumentValueError("Configuration error: Tag '*' is not allowed with other tags in the same repository. Use '*' as the only tag in the repository to avoid overlaps.")
-    if config.get("version","") not in CONTINUOUSPATCH_CONFIG_SUPPORTED_VERSIONS:
-        raise InvalidArgumentValueError(f"Configuration error: Version {config.get('version','')} is not supported. Supported versions are {CONTINUOUSPATCH_CONFIG_SUPPORTED_VERSIONS}")
+    if config.get("version", "") not in CONTINUOUSPATCH_CONFIG_SUPPORTED_VERSIONS:
+        raise InvalidArgumentValueError(f"Configuration error: Version {config.get('version', '')} is not supported. Supported versions are {CONTINUOUSPATCH_CONFIG_SUPPORTED_VERSIONS}")
 
 
 def check_continuous_task_exists(cmd, registry):
