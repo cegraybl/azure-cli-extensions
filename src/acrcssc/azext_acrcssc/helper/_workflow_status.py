@@ -28,6 +28,7 @@ class WorkflowTaskState(Enum):
     SUCCEEDED = "Succeeded"
     FAILED = "Failed"
     QUEUED = "Queued"
+    SKIPPED = "Skipped"
     UNKNOWN = "Unknown"
 
 
@@ -101,7 +102,7 @@ class WorkflowTaskStatus:
         # or more correctly, the patch status is the scan status if there is no patch task
         # and the whole workflow status is both the scan and patch status
         if self.patch_task is None and self.scan_status() == WorkflowTaskState.SUCCEEDED.value:
-            return WorkflowTaskState.SUCCEEDED.value
+            return WorkflowTaskState.SKIPPED.value
         return WorkflowTaskStatus._task_status_to_workflow_status(self.patch_task)
 
     def status(self):
@@ -151,6 +152,13 @@ class WorkflowTaskStatus:
             original_tag = match.group(3)
             return repository, patched_tag, original_tag
         return None
+
+    def _get_skip_patch_reason_from_tasklog(self):
+        if self.scan_task is None:
+            return None
+        match = re.search(r'PATCHING will be skipped as (.+)\n', self.scan_logs)
+        if match:
+            return match.group(1)
 
     def _get_patched_image_name_from_tasklog(self):
         if self.scan_task is None:
@@ -247,24 +255,31 @@ class WorkflowTaskStatus:
         patch_task_id = "" if self.patch_task is None else self.patch_task.run_id
         patched_image = self._get_patched_image_name_from_tasklog()
         workflow_type = CSSCTaskTypes.ContinuousPatchV1.value
+        skipped_patch_reason = ""
 
         # this situation means that we don't have a patched image
         if patched_image == self.image():
             # these are just temporary to exemplify the situation
-            if self.patch_status() == WorkflowTaskState.SUCCEEDED.value:
-                patched_image = "---No Patching Required---"
+            if self.patch_status() == WorkflowTaskState.SKIPPED.value:
+                patched_image = ""
+                skipped_patch_reason = self._get_skip_patch_reason_from_tasklog()
             if self.patch_status() == WorkflowTaskState.FAILED.value:
                 patched_image = "---Patch Failed---"
 
-        return f"image: {self.repository}:{self.tag}\n" \
-               f"\tscan status: {scan_status}\n" \
-               f"\tscan date: {scan_date}\n" \
-               f"\tscan task ID: {scan_task_id}\n" \
-               f"\tpatch status: {patch_status}\n" \
-               f"\tpatch date: {patch_date}\n" \
-               f"\tpatch task ID: {patch_task_id}\n" \
-               f"\tpatched image: {patched_image}\n" \
-               f"\tworkflow type: {workflow_type}"
+        result = f"image: {self.repository}:{self.tag}\n" \
+                 f"\tscan status: {scan_status}\n" \
+                 f"\tscan date: {scan_date}\n" \
+                 f"\tscan task ID: {scan_task_id}\n" \
+                 f"\tpatch status: {patch_status}\n" \
+                 f"\tpatch date: {patch_date}\n" \
+                 f"\tpatch task ID: {patch_task_id}\n" \
+                 f"\tpatched image: {patched_image}\n" \
+                 f"\tworkflow type: {workflow_type}"
+
+        if skipped_patch_reason != "":
+            result += f"\n\tskipped patch reason: {skipped_patch_reason}"
+
+        return result
 
     @staticmethod
     def generate_logs(cmd, client, run_id, registry_name, resource_group_name, await_task_run=True):
