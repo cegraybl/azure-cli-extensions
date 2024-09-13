@@ -314,7 +314,7 @@ class WorkflowTaskStatus:
         return blob_text
 
     @staticmethod
-    def _remove_internal_acr_statements(blob_content):
+    def remove_internal_acr_statements(blob_content):
         lines = blob_content.split("\n")
         starting_identifier = "DRY RUN mode enabled"
         terminating_identifier = "Total matches found"
