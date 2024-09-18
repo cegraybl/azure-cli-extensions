@@ -11,7 +11,9 @@ import re
 from ._constants import (
     RESOURCE_GROUP,
     CSSCTaskTypes,
-    TaskRunStatus)
+    TaskRunStatus,
+    WORKFLOW_STATUS_NOT_AVAILABLE,
+    WORKFLOW_STATUS_PATCH_NOT_AVAILABLE)
 from azure.cli.core.profiles import ResourceType, get_sdk
 from azure.cli.core.azclierror import AzCLIError
 from azure.mgmt.core.tools import parse_resource_id
@@ -84,7 +86,7 @@ class WorkflowTaskStatus:
 
     @staticmethod
     def _workflow_status_to_task_status(status):
-        if status == WorkflowTaskState.SUCCEEDED.value:
+        if status == WorkflowTaskState.SUCCEEDED.value or status == WorkflowTaskState.SKIPPED.value:
             return [TaskRunStatus.Succeeded.value]
         if status == WorkflowTaskState.RUNNING.value:
             return [TaskRunStatus.Running.value, TaskRunStatus.Started.value]
@@ -248,11 +250,11 @@ class WorkflowTaskStatus:
 
     def __str__(self) -> str:
         scan_status = self.scan_status()
-        scan_date = "" if self.scan_task is None else self.scan_task.create_time
-        scan_task_id = "" if self.scan_task is None else self.scan_task.run_id
+        scan_date = WORKFLOW_STATUS_NOT_AVAILABLE if self.scan_task is None else self.scan_task.create_time
+        scan_task_id = WORKFLOW_STATUS_NOT_AVAILABLE if self.scan_task is None else self.scan_task.run_id
         patch_status = self.patch_status()
-        patch_date = "" if self.patch_task is None else self.patch_task.create_time
-        patch_task_id = "" if self.patch_task is None else self.patch_task.run_id
+        patch_date = WORKFLOW_STATUS_NOT_AVAILABLE if self.patch_task is None else self.patch_task.create_time
+        patch_task_id = WORKFLOW_STATUS_NOT_AVAILABLE if self.patch_task is None else self.patch_task.run_id
         patched_image = self._get_patched_image_name_from_tasklog()
         workflow_type = CSSCTaskTypes.ContinuousPatchV1.value
         skipped_patch_reason = ""
@@ -261,23 +263,22 @@ class WorkflowTaskStatus:
         if patched_image == self.image():
             # these are just temporary to exemplify the situation
             if self.patch_status() == WorkflowTaskState.SKIPPED.value:
-                patched_image = ""
+                patched_image = WORKFLOW_STATUS_PATCH_NOT_AVAILABLE
                 skipped_patch_reason = self._get_skip_patch_reason_from_tasklog()
-            if self.patch_status() == WorkflowTaskState.FAILED.value:
-                patched_image = "---Patch Failed---"
 
         result = f"image: {self.repository}:{self.tag}\n" \
                  f"\tscan status: {scan_status}\n" \
                  f"\tscan date: {scan_date}\n" \
                  f"\tscan task ID: {scan_task_id}\n" \
-                 f"\tpatch status: {patch_status}\n" \
-                 f"\tpatch date: {patch_date}\n" \
-                 f"\tpatch task ID: {patch_task_id}\n" \
-                 f"\tpatched image: {patched_image}\n" \
-                 f"\tworkflow type: {workflow_type}"
+                 f"\tpatch status: {patch_status}\n"
 
         if skipped_patch_reason != "":
-            result += f"\n\tskipped patch reason: {skipped_patch_reason}"
+            result += f"\tskipped patch reason: {skipped_patch_reason}\n"
+
+        result += f"\tpatch date: {patch_date}\n" \
+                  f"\tpatch task ID: {patch_task_id}\n" \
+                  f"\tlast patched image: {patched_image}\n" \
+                  f"\tworkflow type: {workflow_type}"
 
         return result
 
