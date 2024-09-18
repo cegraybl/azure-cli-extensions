@@ -260,11 +260,11 @@ class WorkflowTaskStatus:
         skipped_patch_reason = ""
 
         # this situation means that we don't have a patched image
-        if patched_image == self.image():
-            # these are just temporary to exemplify the situation
-            if self.patch_status() == WorkflowTaskState.SKIPPED.value:
+        if self.patch_status() == WorkflowTaskState.SKIPPED.value:
+            skipped_patch_reason = self._get_skip_patch_reason_from_tasklog()
+
+            if patched_image == self.image():
                 patched_image = WORKFLOW_STATUS_PATCH_NOT_AVAILABLE
-                skipped_patch_reason = self._get_skip_patch_reason_from_tasklog()
 
         result = f"image: {self.repository}:{self.tag}\n" \
                  f"\tscan status: {scan_status}\n" \
