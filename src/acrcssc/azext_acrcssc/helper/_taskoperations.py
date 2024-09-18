@@ -38,6 +38,7 @@ from datetime import datetime, timezone, timedelta
 from ._utility import convert_timespan_to_cron, transform_cron_to_schedule, create_temporary_dry_run_file, delete_temporary_dry_run_file
 from azext_acrcssc.helper._ociartifactoperations import create_oci_artifact_continuous_patch, get_oci_artifact_continuous_patch, delete_oci_artifact_continuous_patch
 from ._workflow_status import WorkflowTaskStatus
+from azure.cli.core.commands.progress import IndeterminateProgressBar
 
 logger = get_logger(__name__)
 
@@ -258,8 +259,7 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, schedule, workf
 
     start_time = time.time()
 
-    progress_indicator = cmd.cli_ctx.get_progress_controller()
-    progress_indicator.add()
+    progress_indicator = IndeterminateProgressBar(cmd.cli_ctx)
     progress_indicator.begin()
 
     image_status = WorkflowTaskStatus.from_taskrun(cmd, acr_task_run_client, registry, scan_taskruns, patch_taskruns, progress_indicator=progress_indicator)
@@ -271,7 +271,6 @@ def _retrieve_logs_for_image(cmd, registry, resource_group_name, schedule, workf
     execution_time = end_time - start_time
     logger.debug(f"Execution time: {execution_time} seconds / tasks filtered: {len(scan_taskruns)} + {len(patch_taskruns)}")
 
-    progress_indicator.stop()
     progress_indicator.end()
 
     return image_status

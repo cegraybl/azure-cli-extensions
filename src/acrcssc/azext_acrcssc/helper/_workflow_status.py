@@ -147,6 +147,14 @@ class WorkflowTaskStatus:
         if self.scan_task is None:
             return None
 
+        if self.patch_status() == WorkflowTaskState.SKIPPED.value or self.patch_status() == WorkflowTaskState.SUCCEEDED.value:
+            match = re.search(r'PATCHING task scheduled for image (\S+):(\S+), new patch tag will be (\S+)', self.scan_logs)
+            if match:
+                repository = match.group(1)
+                original_tag = match.group(2)
+                patched_tag = match.group(3)
+                return repository, patched_tag, original_tag
+
         match = re.search(r'Scanning repo: (\S+), Tag:(\S+), OriginalTag:(\S+)', self.scan_logs)
         if match:
             repository = match.group(1)
@@ -204,7 +212,7 @@ class WorkflowTaskStatus:
             futures = []
             for taskrun in taskruns:
                 if progress_indicator:
-                    progress_indicator.update()
+                    progress_indicator.update_progress()
 
                 future = executor.submit(process_taskrun, taskrun)
                 futures.append(future)
@@ -219,7 +227,7 @@ class WorkflowTaskStatus:
 
         for scan in scan_taskruns:
             if progress_indicator:
-                progress_indicator.update()
+                progress_indicator.update_progress()
             if not hasattr(scan, 'task_log_result'):
                 logger.debug(f"Scan Taskrun: {scan.run_id} has no logs, silent failure")
                 continue
@@ -263,8 +271,8 @@ class WorkflowTaskStatus:
         if self.patch_status() == WorkflowTaskState.SKIPPED.value:
             skipped_patch_reason = self._get_skip_patch_reason_from_tasklog()
 
-            if patched_image == self.image():
-                patched_image = WORKFLOW_STATUS_PATCH_NOT_AVAILABLE
+        if patched_image == self.image():
+            patched_image = WORKFLOW_STATUS_PATCH_NOT_AVAILABLE
 
         result = f"image: {self.repository}:{self.tag}\n" \
                  f"\tscan status: {scan_status}\n" \
