@@ -32,7 +32,7 @@ helps['acr supply-chain workflow create'] = """
 helps['acr supply-chain workflow configure-network-bypass'] = """
     type: command
     short-summary: Configure an existing workflow to use system identities with ACR Tasks network-rule bypass.
-    long-summary: Enables the registry bypass policy, then idempotently configures all CSSC tasks with system identities, registry credentials, and the required classic RBAC or RBAC+ABAC roles.
+    long-summary: Enables the registry bypass policy, then idempotently configures all CSSC tasks with system identities, registry credentials, and the required classic RBAC or RBAC+ABAC roles. ARM configuration readiness does not verify that ACR data-plane authorization has finished propagating.
     examples:
         - name: Configure network bypass for an existing workflow
           text: az acr supply-chain workflow configure-network-bypass -r $MyRegistry \

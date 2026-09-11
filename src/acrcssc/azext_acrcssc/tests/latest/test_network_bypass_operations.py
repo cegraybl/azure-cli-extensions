@@ -117,7 +117,12 @@ class NetworkBypassOperationsTests(unittest.TestCase):
             self.cmd,
             self.registry)
 
-        self.assertIs(expected, result)
+        self.assertEqual(expected, {
+            key: value
+            for key, value in result.items()
+            if key != "policy_changed"
+        })
+        self.assertFalse(result["policy_changed"])
         cf_resources.assert_not_called()
 
     @mock.patch.object(_network_bypass.time, "sleep")
@@ -224,7 +229,7 @@ class NetworkBypassOperationsTests(unittest.TestCase):
             result.custom_registries[self.registry.login_server].identity)
         self.assertEqual("None", result.source_registry.login_mode)
 
-    def test_readiness_requires_identity_credentials_and_every_role(self):
+    def test_readiness_distinguishes_arm_convergence_from_data_plane_authorization(self):
         task_name = "cssc-patch-image"
         task = SimpleNamespace(
             identity=SimpleNamespace(
@@ -253,9 +258,17 @@ class NetworkBypassOperationsTests(unittest.TestCase):
             set(),
             changed=False)
 
-        self.assertTrue(ready["ready"])
-        self.assertFalse(missing_role["ready"])
-        self.assertFalse(missing_role["rolesReady"])
+        self.assertTrue(ready["configurationReady"])
+        self.assertTrue(ready["roleAssignmentsVisibleInArm"])
+        self.assertEqual("notVerified", ready["dataPlaneAuthorization"])
+        self.assertNotIn("ready", ready)
+        self.assertNotIn("rolesReady", ready)
+
+        self.assertFalse(missing_role["configurationReady"])
+        self.assertFalse(missing_role["roleAssignmentsVisibleInArm"])
+        self.assertEqual("notVerified", missing_role["dataPlaneAuthorization"])
+        self.assertNotIn("ready", missing_role)
+        self.assertNotIn("rolesReady", missing_role)
 
     @mock.patch.object(_network_bypass, "cf_authorization")
     def test_role_reconciliation_adds_only_missing_assignment(
@@ -309,7 +322,7 @@ class NetworkBypassOperationsTests(unittest.TestCase):
                 for role_id in roles_by_mode["classic"])
         list_assignments.side_effect = [set(), expected]
 
-        result = _network_bypass._wait_for_role_assignments(
+        result = _network_bypass._wait_for_role_assignment_visibility(
             self.cmd,
             self.registry,
             tasks,

@@ -217,7 +217,9 @@ class TestCreateContinuousPatchV1(unittest.TestCase):
         config_file_path = "test_config_file_path"
         mock_acr_registries_task_client = mock.Mock(spec_set=["begin_schedule_run"])
         mock_cf_acr_registries_tasks.return_value = mock_acr_registries_task_client
-        mock_acr_run_client = mock.Mock(spec_set=[])
+        mock_acr_run_client = mock.Mock(spec_set=["get"])
+        mock_acr_run_client.get.return_value = SimpleNamespace(
+            status="Succeeded")
         mock_cf_acr_runs.return_value = mock_acr_run_client
         mock_acr_task_client = mock.Mock(spec_set=[])
         mock_cf_acr_tasks_validator.return_value = mock_acr_task_client

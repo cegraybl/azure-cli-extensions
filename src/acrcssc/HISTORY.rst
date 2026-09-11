@@ -7,6 +7,8 @@ Release History
 ++++++++
 * Add system-identity task authentication and role assignments for network-restricted registries.
 * Add explicit network-bypass enablement and idempotent repair for existing workflows.
+* Fail closed on inconclusive validation and distinguish ARM configuration from data-plane readiness.
+* Warn when network bypass remains enabled after a later workflow creation failure.
 
 1.0.0b8
 ++++++++

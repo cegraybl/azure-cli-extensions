@@ -123,6 +123,80 @@ is required, stop for approval of a revised design such as a temporary
 identity-bearing validation task with guaranteed cleanup. Do not silently
 skip image-count validation.
 
+## Approved Review Remediations
+
+The following corrections were approved after implementation review.
+
+### Fail closed on asynchronous pre-create validation
+
+Scheduling a quick run is not validation success. Creation may continue only
+when the run reaches terminal status `Succeeded`, its logs are retrievable,
+and the image-count result is present and parseable.
+
+- Treat `Failed`, `Canceled`, `Error`, `Timeout`, polling timeout, missing
+  logs, and malformed image-count output as fatal.
+- Do not publish the workflow OCI artifact or deploy persistent tasks after an
+  unsuccessful or inconclusive validation.
+- Translate both scheduling-time and asynchronous known firewall failures,
+  preserving the run ID, service diagnostic, and available correlation IDs.
+- Preserve unrelated authorization and service failures without
+  reclassifying them as network-bypass failures.
+- Reuse one internal terminal-run outcome path for quick-run validation and
+  immediate-run handling.
+
+If a gated live test proves that an identity-less `FileTaskRunRequest` cannot
+succeed on a restricted registry with bypass enabled, stop for approval of a
+temporary identity-bearing validation task. Do not skip image-count
+validation.
+
+### Separate ARM convergence from data-plane readiness
+
+ARM role-assignment visibility proves configuration convergence, not that ACR
+data-plane authorization has propagated.
+
+- Report `roleAssignmentsVisibleInArm` and `configurationReady`.
+- Report `dataPlaneAuthorization` as `notVerified`.
+- Remove ambiguous `ready` and `rolesReady` fields before release.
+- Warn that task-identity data-plane authorization may still be propagating.
+- Remove the fixed 30-second delay before `--run-immediately`.
+- Attempt an immediate run without delay and observe its terminal outcome.
+- Retry only a narrowly identified managed-identity propagation failure that
+  a gated live test proves occurs before task business effects.
+- Use deterministic bounded backoff: 5-second initial delay, multiplier 2,
+  30-second per-delay cap, and 180-second total deadline.
+- If retry safety cannot be proven, do not automatically reschedule. Preserve
+  the original failure and provide manual retry guidance.
+
+### Disclose retained bypass policy after create failure
+
+If explicit create opt-in successfully enables the bypass policy and a later
+stage fails:
+
+- emit exactly one warning that the policy remains enabled;
+- distinguish policy enabled by this invocation from policy already enabled;
+- provide the explicit disable command when this invocation changed it;
+- do not automatically roll back;
+- do not perform Azure calls from the warning path; and
+- preserve the original exception, response, cause, and telemetry
+  classification.
+
+Registry preparation must return internal transition metadata including
+explicit intent, confirmed state, whether the policy was already enabled, and
+whether this invocation changed it.
+
+### Gated live decisions
+
+1. Verify whether the identity-less pre-create quick run can succeed on a
+   restricted Premium registry with bypass enabled.
+2. In classic and RBAC+ABAC modes, prove any proposed automatic-retry
+   diagnostic occurs before catalog, pull, scan, patch, or push effects.
+3. Verify end-to-end trigger read/catalog, scan pull, and patch pull/push
+   behavior.
+4. Force post-enable failures and confirm the persistent-policy warning does
+   not mask the original error.
+5. Re-run public-network creation without opt-in and confirm no policy
+   mutation.
+
 ## Tests-first Work Plan
 
 1. Add desired-state, SDK serialization, registry-state, RBAC-mode, and
@@ -175,6 +249,16 @@ and patch behavior, and unrelated dependency pins.
 12. Public-network workflows remain functional.
 13. Unit/scenario tests, ARM validation, style, linter, index checks, and wheel
     build pass.
+14. Creation continues only after a terminally successful quick run with a
+    valid image-count result.
+15. Failed or inconclusive quick runs leave no workflow artifact or persistent
+    CSSC tasks.
+16. Configure output distinguishes ARM assignment visibility from unverified
+    ACR data-plane authorization.
+17. `--run-immediately` uses no unconditional propagation sleep or unsafe
+    retry.
+18. A failed create after confirmed explicit bypass enablement warns that the
+    policy remains enabled without masking the original failure.
 
 ## References
 

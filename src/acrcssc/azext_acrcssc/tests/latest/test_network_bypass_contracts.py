@@ -188,6 +188,7 @@ class QuickRunFailureContractTests(unittest.TestCase):
         self.assertIn("bypass", message.lower())
         self.assertIn("corr-123", message)
         self.assertIn("no CSSC tasks were created", message)
+        self.assertIs(error, raised.exception.__cause__)
 
     def test_unrelated_quick_run_authorization_403_is_not_rewritten(self):
         helper = _network_bypass_module(self)

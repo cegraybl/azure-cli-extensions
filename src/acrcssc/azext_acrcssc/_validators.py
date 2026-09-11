@@ -142,13 +142,16 @@ def validate_cssc_optional_inputs(cssc_config_path, schedule):
         raise InvalidArgumentValueError(error_msg="Provide at least one parameter to update: --schedule or --config")
 
 
-def validate_continuous_patch_v1_image_limit(dryrun_log):
+def validate_continuous_patch_v1_image_limit(dryrun_log, run_id=None):
     match = re.search(r"Matches found: (\d+)", dryrun_log)
     if match is None:
-        # the quick task did not return the expected output, we cannot validate the image limit but cannot block the operation
-        logger.error("Failed to parse the image limit from the dry run log. Execution will continue.")
         logger.debug("Dry run log: %s", dryrun_log)
-        return
+        run_context = " run '{}'".format(run_id) if run_id else ""
+        raise InvalidArgumentValueError(
+            error_msg=(
+                "Pre-create validation{} did not return a parseable image "
+                "count. Workflow creation stopped before task deployment."
+                .format(run_context)))
 
     image_limit = int(match.group(1))
 

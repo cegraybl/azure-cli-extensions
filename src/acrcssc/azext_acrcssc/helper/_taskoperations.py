@@ -56,7 +56,8 @@ from azext_acrcssc.helper._ociartifactoperations import create_oci_artifact_cont
 from ._workflow_status import WorkflowTaskStatus
 from ._network_bypass import (
     is_abac_role_assignment_mode,
-    raise_for_quick_run_failure)
+    raise_for_quick_run_failure,
+    raise_for_quick_run_outcome)
 
 logger = get_logger(__name__)
 
@@ -193,9 +194,6 @@ def _update_cssc_workflow(cmd, registry, schedule_cron_expression, resource_grou
 def _eval_trigger_run(cmd, registry, resource_group, run_immediately):
     if run_immediately:
         logger.warning(f'Triggering the {CONTINUOUSPATCH_TASK_SCANREGISTRY_NAME} to run immediately')
-        # Seen Managed Identity taking time, see if there can be an alternative (one alternative is to schedule the cron expression with delay)
-        # NEED TO SKIP THE TIME.SLEEP IN UNIT TEST CASE OR FIND AN ALTERNATIVE SOLUITION TO MI COMPLETE
-        time.sleep(30)
         _trigger_task_run(cmd, registry, resource_group, CONTINUOUSPATCH_TASK_SCANREGISTRY_NAME)
 
 
@@ -340,15 +338,35 @@ def acr_cssc_dry_run(
                 tasks_created=not is_create)
         run_id = queued.run_id
         logger.info("Performing dry-run check for filter policy using acr task run id: %s", run_id)
-        return WorkflowTaskStatus.remove_internal_acr_statements(
-            WorkflowTaskStatus.generate_logs(
+        terminal_run = _wait_for_terminal_run(
+            acr_run_client,
+            resource_group_name,
+            registry.name,
+            run_id)
+        raise_for_quick_run_outcome(
+            terminal_run,
+            bypass_enabled=network_bypass_enabled,
+            tasks_created=not is_create)
+        try:
+            logs = WorkflowTaskStatus.generate_logs(
                 cmd,
                 acr_run_client,
                 run_id,
                 registry.name,
                 resource_group_name,
-                await_task_run=True,
-                await_task_message=WORKFLOW_VALIDATION_MESSAGE))
+                await_task_run=False,
+                await_task_message=WORKFLOW_VALIDATION_MESSAGE)
+        except (AzCLIError, TimeoutError) as error:
+            raise AzCLIError(
+                "Could not retrieve logs for successful ACR validation run "
+                "'{}': {}".format(run_id, error)) from error
+
+        if not logs:
+            raise AzCLIError(
+                "ACR validation run '{}' succeeded, but no logs were "
+                "available. Workflow creation stopped before task deployment."
+                .format(run_id))
+        return WorkflowTaskStatus.remove_internal_acr_statements(logs)
     finally:
         delete_temporary_dry_run_file(tmp_folder)
 
@@ -452,7 +470,50 @@ def _trigger_task_run(cmd, registry, resource_group, task_name):
             registry.name,
             request))
     run_id = queued_run.run_id
-    print(f"Queued {CONTINUOUS_PATCHING_WORKFLOW_NAME} workflow task '{task_name}' with run ID: {run_id}. Use 'az acr task logs --registry {registry.name} --run-id {run_id}' to view the logs.")
+    terminal_run = _wait_for_terminal_run(
+        cf_acr_runs(cmd.cli_ctx),
+        resource_group,
+        registry.name,
+        run_id)
+    if getattr(terminal_run, "status", None) != TaskRunStatus.Succeeded.value:
+        service_message = (
+            getattr(terminal_run, "run_error_message", None)
+            or "No service error message was returned.")
+        raise AzCLIError(
+            "Workflow task run '{}' finished with status '{}'. Automatic "
+            "retry was not attempted because safe pre-effect propagation "
+            "retries have not been established. Retry the command manually. "
+            "Service error: {}"
+            .format(run_id, terminal_run.status, service_message))
+    print(
+        f"Completed {CONTINUOUS_PATCHING_WORKFLOW_NAME} workflow task "
+        f"'{task_name}' with run ID: {run_id}.")
+
+
+def _wait_for_terminal_run(
+        run_client,
+        resource_group,
+        registry_name,
+        run_id,
+        timeout=10 * 60,
+        poll_interval=1.5):
+    deadline = time.monotonic() + timeout
+    terminal_statuses = {
+        TaskRunStatus.Succeeded.value,
+        TaskRunStatus.Failed.value,
+        TaskRunStatus.Canceled.value,
+        TaskRunStatus.Error.value,
+        TaskRunStatus.Timeout.value,
+    }
+    while True:
+        run = run_client.get(resource_group, registry_name, run_id)
+        if getattr(run, "status", None) in terminal_statuses:
+            return run
+        if time.monotonic() >= deadline:
+            raise AzCLIError(
+                "Timed out waiting for workflow task run '{}' to complete."
+                .format(run_id))
+        time.sleep(poll_interval)
 
 
 def _update_task_yaml(acr_task_client, acr_tasks_models, registry, resource_group_name, task, encoded_task):

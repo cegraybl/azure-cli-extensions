@@ -15,6 +15,7 @@ from azure.core.exceptions import HttpResponseError
 from azure.mgmt.authorization.models import RoleAssignmentCreateParameters
 from azure.mgmt.core.tools import parse_resource_id
 from azure.mgmt.resource.resources.models import GenericResource
+from knack.log import get_logger
 
 from azext_acrcssc._client_factory import (
     cf_acr_tasks,
@@ -43,8 +44,10 @@ ABAC_ROLE_ASSIGNMENT_MODES = frozenset({
 })
 IDENTITY_PROPAGATION_TIMEOUT_SECONDS = 60
 IDENTITY_PROPAGATION_POLL_SECONDS = 2
-ROLE_PROPAGATION_TIMEOUT_SECONDS = 60
-ROLE_PROPAGATION_POLL_SECONDS = 2
+ROLE_VISIBILITY_TIMEOUT_SECONDS = 60
+ROLE_VISIBILITY_POLL_SECONDS = 2
+
+logger = get_logger(__name__)
 
 
 def build_task_credentials(task_models, login_server):
@@ -103,8 +106,56 @@ def raise_for_quick_run_failure(error, bypass_enabled, tasks_created):
     raise AzCLIError(
         "The ACR validation quick run was denied by registry network rules even "
         "though network-rule bypass is {}. The pre-create quick run does not "
-        "have a persistent task system identity. {} Correlation ID: {}"
-        .format("enabled" if bypass_enabled else "disabled", task_state, correlation_id))
+        "have a persistent task system identity. {} Correlation ID: {}. "
+        "Service error: {}"
+        .format(
+            "enabled" if bypass_enabled else "disabled",
+            task_state,
+            correlation_id,
+            error)) from error
+
+
+def raise_for_quick_run_outcome(run, bypass_enabled, tasks_created):
+    """Raise an actionable error when an accepted validation run fails."""
+    status = str(getattr(run, "status", None) or "Unknown")
+    if status == "Succeeded":
+        return
+
+    run_id = getattr(run, "run_id", None) or "unavailable"
+    error_code = getattr(run, "error_code", None)
+    service_message = (
+        getattr(run, "run_error_message", None)
+        or "No service error message was returned.")
+    normalized_message = service_message.lower()
+    normalized_code = str(error_code or "").lower()
+    is_network_denial = (
+        error_code in NETWORK_BYPASS_ERROR_CODES
+        or any(
+            code.lower() in normalized_message
+            for code in NETWORK_BYPASS_ERROR_CODES)
+        or any(
+            code.lower() in normalized_code
+            for code in NETWORK_BYPASS_ERROR_CODES)
+        or ("firewall" in normalized_message and "denied" in normalized_message)
+        or ("not allowed access" in normalized_message
+            and "firewall" in normalized_message))
+    task_state = (
+        "CSSC tasks may already exist."
+        if tasks_created
+        else "no CSSC tasks were created.")
+    if is_network_denial:
+        raise AzCLIError(
+            "ACR validation run '{}' failed because registry firewall access "
+            "was denied while network-rule bypass is {}. {} Service error: {}"
+            .format(
+                run_id,
+                "enabled" if bypass_enabled else "disabled",
+                task_state,
+                service_message))
+    raise AzCLIError(
+        "ACR validation run '{}' finished with status '{}'. {} "
+        "Inspect the run logs manually. Service error: {}"
+        .format(run_id, status, task_state, service_message))
 
 
 def build_reconciliation_plan(tasks, login_server, role_assignment_mode, existing_role_ids):
@@ -185,32 +236,54 @@ def prepare_registry_for_workflow(cmd, registry, explicit_opt_in):
                 registry.name,
                 registry.id,
                 ACR_NETWORK_BYPASS_API_VERSION))
+    already_enabled = state["network_bypass_enabled"]
     if decision == "enable":
         state = enable_registry_network_bypass(cmd, registry)
-    return state
+    return {
+        **state,
+        "explicit_opt_in": bool(explicit_opt_in),
+        "confirmed_enabled": bool(state["network_bypass_enabled"]),
+        "already_enabled": bool(already_enabled),
+        "policy_changed": bool(state.get(
+            "policy_changed",
+            decision == "enable"
+            and bool(state["network_bypass_enabled"]))),
+    }
 
 
 def enable_registry_network_bypass(cmd, registry):
     """Enable and verify the explicitly requested registry bypass policy."""
     state = get_registry_security_state(cmd, registry)
     if state["network_bypass_enabled"]:
-        return state
+        return {
+            **state,
+            "policy_changed": False,
+        }
 
     resources = cf_resources(cmd.cli_ctx).resources
     parameters = GenericResource(properties={
         "networkRuleBypassAllowedForTasks": True,
     })
-    poller = resources.begin_update_by_id(
-        registry.id,
-        ACR_NETWORK_BYPASS_API_VERSION,
-        parameters)
-    LongRunningOperation(cmd.cli_ctx)(poller)
-    state = get_registry_security_state(cmd, registry)
+    try:
+        poller = resources.begin_update_by_id(
+            registry.id,
+            ACR_NETWORK_BYPASS_API_VERSION,
+            parameters)
+        LongRunningOperation(cmd.cli_ctx)(poller)
+        state = get_registry_security_state(cmd, registry)
+    except Exception as error:
+        error.network_bypass_update_started = True
+        raise
     if not state["network_bypass_enabled"]:
-        raise AzCLIError(
+        error = AzCLIError(
             "The registry update completed, but ACR Tasks network-rule bypass "
             "is not enabled.")
-    return state
+        error.network_bypass_update_started = True
+        raise error
+    return {
+        **state,
+        "policy_changed": True,
+    }
 
 
 def configure_existing_workflow_network_bypass(cmd, registry):
@@ -265,7 +338,7 @@ def configure_existing_workflow_network_bypass(cmd, registry):
         tasks,
         role_mode)
     refreshed_tasks = _get_owned_tasks(tasks_client, resource_group, registry.name)
-    role_assignments = _wait_for_role_assignments(
+    role_assignments = _wait_for_role_assignment_visibility(
         cmd,
         registry,
         refreshed_tasks,
@@ -278,11 +351,18 @@ def configure_existing_workflow_network_bypass(cmd, registry):
         changed_tasks,
         added_roles,
         role_assignments)
-    unready_tasks = [task["name"] for task in result["tasks"] if not task["ready"]]
+    unready_tasks = [
+        task["name"]
+        for task in result["tasks"]
+        if not task["configurationReady"]]
     if unready_tasks:
         raise AzCLIError(
             "Network-bypass configuration did not converge for CSSC task(s): {}."
             .format(", ".join(unready_tasks)))
+    logger.warning(
+        "Required role assignments are visible in ARM. ACR data-plane "
+        "authorization for the task managed identities was not verified and "
+        "may still be propagating.")
     return result
 
 
@@ -428,22 +508,30 @@ def _build_readiness_result(
         changed_tasks,
         added_roles,
         role_assignments):
+    task_results = [
+        _build_task_readiness(
+            name,
+            task,
+            registry.login_server,
+            role_mode,
+            role_assignments,
+            name in changed_tasks)
+        for name, task in tasks.items()
+    ]
     return {
         "registry": registry.name,
         "loginServer": registry.login_server,
         "publicNetworkAccess": state["public_network_access"],
         "networkRuleBypassAllowedForTasks": state["network_bypass_enabled"],
         "roleAssignmentMode": state["role_assignment_mode"],
-        "tasks": [
-            _build_task_readiness(
-                name,
-                task,
-                registry.login_server,
-                role_mode,
-                role_assignments,
-                name in changed_tasks)
-            for name, task in tasks.items()
-        ],
+        "roleAssignmentsVisibleInArm": all(
+            task["roleAssignmentsVisibleInArm"]
+            for task in task_results),
+        "configurationReady": all(
+            task["configurationReady"]
+            for task in task_results),
+        "dataPlaneAuthorization": "notVerified",
+        "tasks": task_results,
         "rolesAdded": added_roles,
     }
 
@@ -487,13 +575,13 @@ def _list_role_assignment_pairs(cmd, scope):
     }
 
 
-def _wait_for_role_assignments(
+def _wait_for_role_assignment_visibility(
         cmd,
         registry,
         tasks,
         role_mode,
-        timeout=ROLE_PROPAGATION_TIMEOUT_SECONDS,
-        poll_interval=ROLE_PROPAGATION_POLL_SECONDS):
+        timeout=ROLE_VISIBILITY_TIMEOUT_SECONDS,
+        poll_interval=ROLE_VISIBILITY_POLL_SECONDS):
     deadline = time.monotonic() + timeout
     while True:
         assignments = _list_role_assignment_pairs(cmd, registry.id)
@@ -535,7 +623,7 @@ def _build_task_readiness(
     ]
     identity_ready = _has_system_identity(task) and bool(principal_id)
     credentials_ready = _has_desired_credentials(task, login_server)
-    roles_ready = len(assigned_role_ids) == len(required_role_ids)
+    assignments_visible = len(assigned_role_ids) == len(required_role_ids)
     return {
         "name": name,
         "principalId": principal_id,
@@ -543,8 +631,17 @@ def _build_task_readiness(
         "credentialsReady": credentials_ready,
         "requiredRoleIds": required_role_ids,
         "assignedRoleIds": assigned_role_ids,
-        "rolesReady": roles_ready,
-        "ready": identity_ready and credentials_ready and roles_ready,
+        "roleAssignmentsVisibleInArm": assignments_visible,
+        "missingRoles": [
+            role_id
+            for role_id in required_role_ids
+            if role_id not in assigned_role_ids
+        ],
+        "configurationReady": (
+            identity_ready
+            and credentials_ready
+            and assignments_visible),
+        "dataPlaneAuthorization": "notVerified",
         "changed": changed,
     }
 

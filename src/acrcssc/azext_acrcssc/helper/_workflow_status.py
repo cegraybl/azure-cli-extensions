@@ -441,7 +441,7 @@ class WorkflowTaskStatus:
             log_file_sas = response.log_link
         except (AttributeError, HttpResponseError) as e:
             logger.debug("%s Exception: %s", error_msg, e)
-            raise AzCLIError(error_msg)
+            raise AzCLIError("{}: {}".format(error_msg, e)) from e
         except ResourceNotFoundError as e:
             logger.debug("log file not found for run_id: %s, registry: %s, "
                          "resource_group: %s -- exception: %s",
@@ -462,14 +462,22 @@ class WorkflowTaskStatus:
                 logger.debug("Task result: %s", result)
             except TimeoutError:
                 logger.debug("Timeout waiting for task run to complete, workflow task run ID: %s", run_id)
-                logger.debug("An attempt to retrieve the logs will be done, if there are any")
+                raise AzCLIError(
+                    "Timeout waiting for task run '{}' to complete."
+                    .format(run_id))
 
         blobClient = get_sdk(cmd.cli_ctx, ResourceType.DATA_STORAGE_BLOB, '_blob_client#BlobClient')
         return WorkflowTaskStatus._download_logs(blobClient.from_blob_url(log_file_sas))
 
     @staticmethod
     def evaluate_task_run_nonterminal_state(run_status):
-        return run_status != TaskRunStatus.Succeeded.value and run_status != TaskRunStatus.Failed.value
+        return run_status not in {
+            TaskRunStatus.Succeeded.value,
+            TaskRunStatus.Failed.value,
+            TaskRunStatus.Canceled.value,
+            TaskRunStatus.Error.value,
+            TaskRunStatus.Timeout.value,
+        }
 
     @staticmethod
     def get_run_status_local(client, resource_group_name, registry_name, run_id):

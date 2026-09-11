@@ -68,12 +68,28 @@ Usage
    ```
 
    Successful output reports the bypass policy, authorization mode, task
-   principal IDs, credential readiness, and role readiness. Afterward, validate
-   the workflow without triggering patch execution:
+   principal IDs, credential readiness, and ARM role-assignment visibility.
+   ``configurationReady`` means the required configuration is visible in ARM;
+   ``dataPlaneAuthorization`` remains ``notVerified`` because role visibility
+   does not prove that ACR data-plane authorization has propagated. Afterward,
+   validate the workflow without triggering patch execution:
 
    ```sh
    az acr supply-chain workflow update --resource-group <resource-group> --registry <registry-name> --type continuouspatchv1 --config <config-file> --dry-run
    ```
+
+   A create operation continues only after its validation task reaches
+   ``Succeeded`` and returns a parseable image count. Failed, timed-out, or
+   inconclusive validation stops before workflow task deployment.
+
+   If ``--enable-network-bypass`` enables the registry policy and a later create
+   stage fails, the policy is intentionally not rolled back. The command warns
+   that it remains enabled and provides an explicit disable command.
+
+   ``--run-immediately`` does not use a fixed propagation delay. If its first
+   task run fails, the command preserves the service diagnostic and asks the
+   user to retry manually; automatic rescheduling remains disabled until a
+   gated live test proves a retry signature is safe before task side effects.
 
 1. **Update a Continuous Patch Task**:
    ```sh

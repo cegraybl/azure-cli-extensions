@@ -6,7 +6,9 @@
 # pylint: disable=logging-fstring-interpolation
 from azure.cli.core.util import user_confirmation
 from knack.log import get_logger
-from .helper._constants import CONTINUOUS_PATCHING_WORKFLOW_NAME
+from .helper._constants import (
+    ACR_NETWORK_BYPASS_API_VERSION,
+    CONTINUOUS_PATCHING_WORKFLOW_NAME)
 from .helper._taskoperations import (
     create_update_continuous_patch_v1,
     delete_continuous_patch_v1,
@@ -49,36 +51,73 @@ def _perform_continuous_patch_operation(cmd,
     logger.debug('validations completed successfully.')
 
     network_state = None
-    if is_create:
-        network_state = prepare_registry_for_workflow(
-            cmd,
-            registry,
-            enable_network_bypass)
+    try:
+        if is_create:
+            network_state = prepare_registry_for_workflow(
+                cmd,
+                registry,
+                enable_network_bypass)
 
-    # every time we perform a create or update operation, we need to validate for the number of images selected on the
-    # configuration file. The way to do this is by silently running the dryrun operation. If the limit is exceeded, we
-    # will not proceed with the operation.
-    dryrun_output = acr_cssc_dry_run(cmd,
-                                     registry=registry,
-                                     config_file_path=config,
-                                     is_create=is_create,
-                                     remove_internal_statements=not dryrun,
-                                     network_bypass_enabled=bool(
-                                         network_state
-                                         and network_state["network_bypass_enabled"]))
-    if dryrun:
-        print(dryrun_output)
-    else:
-        validate_continuous_patch_v1_image_limit(dryrun_output)
-        create_update_continuous_patch_v1(
+        # Every create or update validates the number of selected images before
+        # publishing configuration or deploying tasks.
+        dryrun_output = acr_cssc_dry_run(
             cmd,
-            registry,
-            config,
-            schedule,
-            dryrun,
-            run_immediately,
-            is_create,
-            registry_security_state=network_state)
+            registry=registry,
+            config_file_path=config,
+            is_create=is_create,
+            remove_internal_statements=not dryrun,
+            network_bypass_enabled=bool(
+                network_state
+                and network_state["network_bypass_enabled"]))
+        if dryrun:
+            print(dryrun_output)
+        else:
+            validate_continuous_patch_v1_image_limit(dryrun_output)
+            create_update_continuous_patch_v1(
+                cmd,
+                registry,
+                config,
+                schedule,
+                dryrun,
+                run_immediately,
+                is_create,
+                registry_security_state=network_state)
+    except Exception as error:
+        if (is_create
+                and enable_network_bypass
+                and network_state
+                and network_state.get("confirmed_enabled")):
+            if network_state.get("policy_changed"):
+                logger.warning(
+                    "Workflow creation failed after this command requested "
+                    "and confirmed networkRuleBypassAllowedForTasks on "
+                    "registry '%s'. The policy remains enabled and was not "
+                    "rolled back. To "
+                    "disable it explicitly: az resource update --ids %s "
+                    "--api-version %s --set "
+                    "properties.networkRuleBypassAllowedForTasks=false",
+                    registry.name,
+                    registry.id,
+                    ACR_NETWORK_BYPASS_API_VERSION)
+            else:
+                logger.warning(
+                    "Workflow creation failed. "
+                    "networkRuleBypassAllowedForTasks was already enabled on "
+                    "registry '%s' and remains enabled.",
+                    registry.name)
+        elif (is_create
+              and enable_network_bypass
+              and getattr(
+                  error,
+                  "network_bypass_update_started",
+                  False)):
+            logger.warning(
+                "Workflow creation failed after the registry network-bypass "
+                "update started. The final policy state could not be verified "
+                "and may remain enabled on registry '%s'. Verify "
+                "networkRuleBypassAllowedForTasks before retrying.",
+                registry.name)
+        raise
 
 
 def create_acrcssc(cmd,
