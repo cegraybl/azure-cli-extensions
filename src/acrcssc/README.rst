@@ -24,10 +24,14 @@ Features
 - **Dry Run Mode**: Validate the configuration without making any changes.
 - **Immediate Run**: Trigger the patching workflow immediately.
 - **Run Status**: Monitor the status of the scanning and patching tasks.
+- **Network-restricted Registries**: Configure task system identities, credentials,
+  and least-privilege roles for ACR Tasks network-rule bypass.
 
 Commands
 ========
 - `az acr supply-chain workflow create`: Create a continuous patch task in the registry.
+- `az acr supply-chain workflow configure-network-bypass`: Configure an existing
+  workflow for ACR Tasks network-rule bypass.
 - `az acr supply-chain workflow update`: Update an existing continuous patch task.
 - `az acr supply-chain workflow delete`: Delete a continuous patch task.
 - `az acr supply-chain workflow list`: List all continuous patch tasks in the registry.
@@ -39,6 +43,36 @@ Usage
 1. **Create a Continuous Patch Task**:
    ```sh
    az acr supply-chain workflow create --resource-group <resource-group> --registry <registry-name> --type continuouspatchv1 --schedule <schedule> --config <config-file>
+   ```
+
+1. **Create on a network-restricted registry**:
+
+   The ``--enable-network-bypass`` flag explicitly enables
+   ``networkRuleBypassAllowedForTasks`` on the registry. This permits ACR Tasks
+   that authenticate with their system-assigned identities to bypass registry
+   network rules; it does not enable public network access.
+
+   ```sh
+   az acr supply-chain workflow create --resource-group <resource-group> --registry <registry-name> --type continuouspatchv1 --schedule <schedule> --config <config-file> --enable-network-bypass
+   ```
+
+1. **Repair an existing workflow on a network-restricted registry**:
+
+   This command is idempotent. It explicitly enables the registry bypass policy
+   and updates the three existing CSSC tasks in place. It preserves unrelated
+   task credentials and role assignments and selects classic RBAC or RBAC+ABAC
+   repository roles based on the registry authorization mode.
+
+   ```sh
+   az acr supply-chain workflow configure-network-bypass --resource-group <resource-group> --registry <registry-name> --type continuouspatchv1
+   ```
+
+   Successful output reports the bypass policy, authorization mode, task
+   principal IDs, credential readiness, and role readiness. Afterward, validate
+   the workflow without triggering patch execution:
+
+   ```sh
+   az acr supply-chain workflow update --resource-group <resource-group> --registry <registry-name> --type continuouspatchv1 --config <config-file> --dry-run
    ```
 
 1. **Update a Continuous Patch Task**:
@@ -102,3 +136,53 @@ The `tag-convention` property in the configuration file determines how the tags 
 
 - **incremental**: This is the default behavior. It increases the patch version of the tag. For example, if the original tag is `1.0`, the patched tags will be `1.0-1`, `1.0-2`, etc.
 - **floating**: This reuses the tag postfix `patched` for patching. For example, if the original tag is `1.0`, the patched tag will be `1.0-patched`.
+
+Manual Network-Bypass Recovery
+==============================
+
+Use the extension command above when possible. For an existing workflow that
+must be repaired before the updated extension can be installed, an administrator
+can apply the equivalent Azure CLI configuration manually. Review the security
+impact before enabling the registry policy.
+
+1. Enable the registry policy:
+
+   ```sh
+   REGISTRY_ID=$(az acr show -n <registry-name> -g <resource-group> --query id -o tsv)
+   LOGIN_SERVER=$(az acr show -n <registry-name> -g <resource-group> --query loginServer -o tsv)
+   az resource update --ids "$REGISTRY_ID" --api-version 2025-06-01-preview --set properties.networkRuleBypassAllowedForTasks=true
+   ```
+
+1. For each of ``cssc-trigger-workflow``, ``cssc-scan-image``, and
+   ``cssc-patch-image``, assign a system identity, disable default source
+   authentication, and configure identity login:
+
+   ```sh
+   az acr task update -r <registry-name> -n <task-name> --assign-identity '[system]' --auth-mode None --source-acr-auth-id '[system]'
+   az acr task credential add -r <registry-name> -n <task-name> --login-server "$LOGIN_SERVER" --use-identity '[system]'
+   ```
+
+   If the login-server credential already exists with the wrong identity,
+   remove that credential before adding it again. Do not remove unrelated
+   custom-registry credentials.
+
+1. Assign registry-scoped roles to each task principal. For classic RBAC,
+   trigger and scan require ``AcrPull`` plus ``Container Registry Tasks
+   Contributor``; patch requires ``AcrPush``. For RBAC+ABAC, trigger requires
+   ``Container Registry Repository Reader``, ``Container Registry Repository
+   Catalog Lister``, and ``Container Registry Tasks Contributor``; scan requires
+   ``Container Registry Repository Reader`` plus ``Container Registry Tasks
+   Contributor``; patch requires ``Container Registry Repository Writer``.
+
+   ```sh
+   PRINCIPAL_ID=$(az acr task show -r <registry-name> -n <task-name> --query identity.principalId -o tsv)
+   az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role <required-role> --scope "$REGISTRY_ID"
+   ```
+
+1. Verify the resulting task and policy state:
+
+   ```sh
+   az resource show --ids "$REGISTRY_ID" --api-version 2025-06-01-preview --query properties.networkRuleBypassAllowedForTasks
+   az acr task show -r <registry-name> -n <task-name> --query "{identity:identity,credentials:credentials}"
+   az role assignment list --assignee-object-id "$PRINCIPAL_ID" --scope "$REGISTRY_ID"
+   ```

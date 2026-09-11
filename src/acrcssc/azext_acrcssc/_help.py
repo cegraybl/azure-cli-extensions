@@ -23,6 +23,20 @@ helps['acr supply-chain workflow create'] = """
         - name: Create acr supply chain workflow
           text: az acr supply-chain workflow create -r $MyRegistry -g $MyResourceGroup \
                 --type continuouspatchv1 --schedule 1d --config path-to-config-file
+        - name: Create a workflow on a network-restricted registry and explicitly enable ACR Tasks bypass
+          text: az acr supply-chain workflow create -r $MyRegistry -g $MyResourceGroup \
+                --type continuouspatchv1 --schedule 1d --config path-to-config-file \
+                --enable-network-bypass
+"""
+
+helps['acr supply-chain workflow configure-network-bypass'] = """
+    type: command
+    short-summary: Configure an existing workflow to use system identities with ACR Tasks network-rule bypass.
+    long-summary: Enables the registry bypass policy, then idempotently configures all CSSC tasks with system identities, registry credentials, and the required classic RBAC or RBAC+ABAC roles.
+    examples:
+        - name: Configure network bypass for an existing workflow
+          text: az acr supply-chain workflow configure-network-bypass -r $MyRegistry \
+                -g $MyResourceGroup --type continuouspatchv1
 """
 helps['acr supply-chain workflow update'] = """
     type: command

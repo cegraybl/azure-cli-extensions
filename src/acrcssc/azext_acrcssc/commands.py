@@ -13,6 +13,7 @@ def load_command_table(self, _):
 
     with self.command_group("acr supply-chain workflow", client_factory=cf_acr, is_preview=True) as g:
         g.custom_command("create", "create_acrcssc")
+        g.custom_command("configure-network-bypass", "configure_network_bypass")
         g.custom_command("update", "update_acrcssc")
         g.custom_command("delete", "delete_acrcssc")
         g.custom_show_command("show", "show_acrcssc")

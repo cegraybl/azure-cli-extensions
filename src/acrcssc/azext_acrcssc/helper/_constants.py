@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------------------------
 """Constants used across the extension."""
 # pylint: disable=line-too-long
+from types import MappingProxyType
 from enum import Enum
 
 
@@ -99,6 +100,32 @@ CONTINUOUSPATCH_TASK_DEFINITION = {
             DESCRIPTION: CONTINUOUSPATCH_TASK_SCANREGISTRY_DESCRIPTION
         },
 }
+
+ACR_PULL_ROLE_ID = "7f951dda-4ed3-4680-a7ca-43fe172d538d"
+ACR_PUSH_ROLE_ID = "8311e382-0749-4cb8-b61a-304f252e45ec"
+ACR_TASKS_CONTRIBUTOR_ROLE_ID = "fb382eab-e894-4461-af04-94435c366c3f"
+ACR_REPOSITORY_READER_ROLE_ID = "b93aa761-3e63-49ed-ac28-beffa264f7ac"
+ACR_REPOSITORY_WRITER_ROLE_ID = "41e95607-eb55-4a7f-8412-1b7d4b4e6ed6"
+ACR_CATALOG_LISTER_ROLE_ID = "bfdb9389-c9a5-478a-bb2f-ba9ca092c3c7"
+ACR_NETWORK_BYPASS_API_VERSION = "2025-06-01-preview"
+
+CSSC_TASK_ROLE_IDS = MappingProxyType({
+    CONTINUOUSPATCH_TASK_SCANREGISTRY_NAME: MappingProxyType({
+        "classic": (ACR_PULL_ROLE_ID, ACR_TASKS_CONTRIBUTOR_ROLE_ID),
+        "abac": (
+            ACR_REPOSITORY_READER_ROLE_ID,
+            ACR_CATALOG_LISTER_ROLE_ID,
+            ACR_TASKS_CONTRIBUTOR_ROLE_ID),
+    }),
+    CONTINUOUSPATCH_TASK_SCANIMAGE_NAME: MappingProxyType({
+        "classic": (ACR_PULL_ROLE_ID, ACR_TASKS_CONTRIBUTOR_ROLE_ID),
+        "abac": (ACR_REPOSITORY_READER_ROLE_ID, ACR_TASKS_CONTRIBUTOR_ROLE_ID),
+    }),
+    CONTINUOUSPATCH_TASK_PATCHIMAGE_NAME: MappingProxyType({
+        "classic": (ACR_PUSH_ROLE_ID,),
+        "abac": (ACR_REPOSITORY_WRITER_ROLE_ID,),
+    }),
+})
 CONTINUOUSPATCH_CONFIG_SCHEMA_SIZE_LIMIT = 1024 * 1024 * 10  # 10MB, we don't want to allow huge files
 CONTINUOUSPATCH_CONFIG_SCHEMA_V1 = {
     "type": "object",

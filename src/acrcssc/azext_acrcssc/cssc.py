@@ -22,6 +22,9 @@ from ._validators import (
     validate_continuous_patch_v1_image_limit
 )
 from azext_acrcssc._client_factory import cf_acr_registries
+from .helper._network_bypass import (
+    configure_existing_workflow_network_bypass,
+    prepare_registry_for_workflow)
 
 logger = get_logger(__name__)
 
@@ -33,7 +36,8 @@ def _perform_continuous_patch_operation(cmd,
                                         schedule,
                                         dryrun=False,
                                         run_immediately=False,
-                                        is_create=True):
+                                        is_create=True,
+                                        enable_network_bypass=False):
     acr_client_registries = cf_acr_registries(cmd.cli_ctx, None)
     registry = acr_client_registries.get(resource_group_name, registry_name)
 
@@ -44,6 +48,13 @@ def _perform_continuous_patch_operation(cmd,
 
     logger.debug('validations completed successfully.')
 
+    network_state = None
+    if is_create:
+        network_state = prepare_registry_for_workflow(
+            cmd,
+            registry,
+            enable_network_bypass)
+
     # every time we perform a create or update operation, we need to validate for the number of images selected on the
     # configuration file. The way to do this is by silently running the dryrun operation. If the limit is exceeded, we
     # will not proceed with the operation.
@@ -51,12 +62,23 @@ def _perform_continuous_patch_operation(cmd,
                                      registry=registry,
                                      config_file_path=config,
                                      is_create=is_create,
-                                     remove_internal_statements=not dryrun)
+                                     remove_internal_statements=not dryrun,
+                                     network_bypass_enabled=bool(
+                                         network_state
+                                         and network_state["network_bypass_enabled"]))
     if dryrun:
         print(dryrun_output)
     else:
         validate_continuous_patch_v1_image_limit(dryrun_output)
-        create_update_continuous_patch_v1(cmd, registry, config, schedule, dryrun, run_immediately, is_create)
+        create_update_continuous_patch_v1(
+            cmd,
+            registry,
+            config,
+            schedule,
+            dryrun,
+            run_immediately,
+            is_create,
+            registry_security_state=network_state)
 
 
 def create_acrcssc(cmd,
@@ -66,7 +88,8 @@ def create_acrcssc(cmd,
                    config,
                    schedule,
                    dryrun=False,
-                   run_immediately=False):
+                   run_immediately=False,
+                   enable_network_bypass=False):
     '''Create a continuous patch task in the registry.'''
     logger.debug(f"Entering create_acrcssc with parameters: {registry_name} {workflow_type} {config} {schedule} {dryrun}")
     _perform_continuous_patch_operation(cmd,
@@ -76,7 +99,20 @@ def create_acrcssc(cmd,
                                         schedule,
                                         dryrun,
                                         run_immediately,
-                                        is_create=True)
+                                        is_create=True,
+                                        enable_network_bypass=enable_network_bypass)
+
+
+def configure_network_bypass(cmd,
+                             resource_group_name,
+                             registry_name,
+                             workflow_type):
+    """Configure an existing continuous patch workflow for network bypass."""
+    validate_task_type(workflow_type)
+    registry = cf_acr_registries(cmd.cli_ctx, None).get(
+        resource_group_name,
+        registry_name)
+    return configure_existing_workflow_network_bypass(cmd, registry)
 
 
 def update_acrcssc(cmd,

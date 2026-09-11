@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License. See License.txt in the project root for license information.
 # --------------------------------------------------------------------------------------------
+import base64
 import os
 import re
 from knack.log import get_logger
@@ -20,6 +21,15 @@ from .._client_factory import cf_acr_tasks
 
 logger = get_logger(__name__)
 # pylint: disable=logging-fstring-interpolation
+
+
+def create_encoded_task(task_file):
+    """Load and encode a packaged ACR task definition."""
+    templates_path = os.path.abspath(os.path.join(
+        os.path.dirname(__file__),
+        "../templates"))
+    with open(os.path.join(templates_path, task_file), "rb") as task_stream:
+        return base64.b64encode(task_stream.read()).decode("utf-8")
 
 
 def convert_timespan_to_cron(schedule, date_time=None):

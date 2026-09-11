@@ -6,7 +6,15 @@
 import unittest
 from unittest import mock
 from unittest.mock import MagicMock
-from azext_acrcssc.cssc import create_acrcssc, update_acrcssc, delete_acrcssc, show_acrcssc, cancel_runs, list_scan_status
+from azext_acrcssc.cssc import (
+    cancel_runs,
+    configure_network_bypass,
+    create_acrcssc,
+    delete_acrcssc,
+    list_scan_status,
+    show_acrcssc,
+    update_acrcssc)
+
 
 class AcrcsscTest(unittest.TestCase):
     def __init__(self, method_name):
@@ -21,12 +29,43 @@ class AcrcsscTest(unittest.TestCase):
     @mock.patch("azext_acrcssc.cssc._perform_continuous_patch_operation")
     def test_create_acrcssc(self, mock_perform_continuous_patch_operation):
         create_acrcssc(self.cmd, "mockrg", self.registry.name, "continuouspatchv1", "mockconfig", "1d", False, False)
-        mock_perform_continuous_patch_operation.assert_called_once_with(self.cmd, "mockrg", self.registry.name, "mockconfig", "1d", False, False, is_create=True)
+        mock_perform_continuous_patch_operation.assert_called_once_with(
+            self.cmd,
+            "mockrg",
+            self.registry.name,
+            "mockconfig",
+            "1d",
+            False,
+            False,
+            is_create=True,
+            enable_network_bypass=False)
 
     @mock.patch("azext_acrcssc.cssc._perform_continuous_patch_operation")
     def test_update_acrcssc(self, mock_perform_continuous_patch_operation):
         update_acrcssc(self.cmd, "mockrg", self.registry.name, "continuouspatchv1", "mockconfig", "1d", False, False)
         mock_perform_continuous_patch_operation.assert_called_once_with(self.cmd, "mockrg", self.registry.name, "mockconfig", "1d", False, False, is_create=False)
+
+    @mock.patch("azext_acrcssc.cssc.configure_existing_workflow_network_bypass")
+    @mock.patch("azext_acrcssc.cssc.cf_acr_registries")
+    @mock.patch("azext_acrcssc.cssc.validate_task_type")
+    def test_configure_network_bypass(
+            self,
+            mock_validate_task_type,
+            mock_cf_acr_registries,
+            mock_configure):
+        mock_cf_acr_registries.return_value.get.return_value = self.registry
+        mock_configure.return_value = {"networkRuleBypassAllowedForTasks": True}
+
+        result = configure_network_bypass(
+            self.cmd,
+            "mockrg",
+            self.registry.name,
+            "continuouspatchv1")
+
+        mock_validate_task_type.assert_called_once_with("continuouspatchv1")
+        mock_cf_acr_registries.assert_called_once_with(self.cmd.cli_ctx, None)
+        mock_configure.assert_called_once_with(self.cmd, self.registry)
+        self.assertTrue(result["networkRuleBypassAllowedForTasks"])
 
     @mock.patch("azext_acrcssc.cssc.delete_continuous_patch_v1")
     @mock.patch("azext_acrcssc.cssc.cf_acr_registries")

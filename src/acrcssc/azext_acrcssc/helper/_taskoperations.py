@@ -5,7 +5,6 @@
 # pylint: disable=line-too-long
 # pylint: disable=broad-exception-caught
 # pylint: disable=logging-fstring-interpolation
-import base64
 import os
 import tempfile
 import time
@@ -47,9 +46,17 @@ from azext_acrcssc._client_factory import (
 from azext_acrcssc.helper._deployment import validate_and_deploy_template
 from azext_acrcssc._validators import check_continuous_task_exists, check_continuous_task_config_exists
 from datetime import datetime, timezone, timedelta
-from ._utility import convert_timespan_to_cron, convert_cron_to_schedule, create_temporary_dry_run_file, delete_temporary_dry_run_file
+from ._utility import (
+    convert_timespan_to_cron,
+    convert_cron_to_schedule,
+    create_encoded_task,
+    create_temporary_dry_run_file,
+    delete_temporary_dry_run_file)
 from azext_acrcssc.helper._ociartifactoperations import create_oci_artifact_continuous_patch, get_oci_artifact_continuous_patch, delete_oci_artifact_continuous_patch
 from ._workflow_status import WorkflowTaskStatus
+from ._network_bypass import (
+    is_abac_role_assignment_mode,
+    raise_for_quick_run_failure)
 
 logger = get_logger(__name__)
 
@@ -60,7 +67,8 @@ def create_update_continuous_patch_v1(cmd,
                                       schedule,
                                       dryrun,
                                       run_immediately,
-                                      is_create_workflow=True):
+                                      is_create_workflow=True,
+                                      registry_security_state=None):
 
     logger.debug(f"Entering continuousPatchV1_creation {cssc_config_file} {dryrun} {run_immediately}")
 
@@ -79,7 +87,13 @@ def create_update_continuous_patch_v1(cmd,
         create_oci_artifact_continuous_patch(registry, cssc_config_file, dryrun)
         logger.debug(f"Uploading of {cssc_config_file} for create completed successfully.")
 
-        _create_cssc_workflow(cmd, registry, schedule_cron_expression, resource_group, dryrun)
+        _create_cssc_workflow(
+            cmd,
+            registry,
+            schedule_cron_expression,
+            resource_group,
+            dryrun,
+            registry_security_state)
     else:
         if not cssc_tasks_exists:
             raise AzCLIError(f"{ERROR_MESSAGE_WORKFLOW_TASKS_DOES_NOT_EXIST}")
@@ -102,15 +116,40 @@ def create_update_continuous_patch_v1(cmd,
     print(f"Continuous Patching workflow scheduled to run next at: {next_date} UTC")
 
 
-def _create_cssc_workflow(cmd, registry, schedule_cron_expression, resource_group, dry_run, silent_execution=False):
+def _create_cssc_workflow(
+        cmd,
+        registry,
+        schedule_cron_expression,
+        resource_group,
+        dry_run,
+        registry_security_state=None,
+        silent_execution=False):
+    registry_security_state = registry_security_state or {}
+    role_assignment_mode = registry_security_state.get(
+        "role_assignment_mode",
+        getattr(registry, "role_assignment_mode", "rbac"))
     parameters = {
         "AcrName": {"value": registry.name},
         "AcrLocation": {"value": registry.location},
-        "taskSchedule": {"value": schedule_cron_expression}
+        "UseAbacRoles": {
+            "value": is_abac_role_assignment_mode(role_assignment_mode),
+        },
+        "taskSchedule": {"value": schedule_cron_expression},
+        "taskCredentials": {"value": {
+            "sourceRegistry": {
+                "identity": "[system]",
+                "loginMode": "None",
+            },
+            "customRegistries": {
+                registry.login_server: {
+                    "identity": "[system]",
+                },
+            },
+        }},
     }
 
     for task in CONTINUOUSPATCH_TASK_DEFINITION:
-        encoded_task = {"value": _create_encoded_task(CONTINUOUSPATCH_TASK_DEFINITION[task]["template_file"])}
+        encoded_task = {"value": create_encoded_task(CONTINUOUSPATCH_TASK_DEFINITION[task]["template_file"])}
         param_name = CONTINUOUSPATCH_TASK_DEFINITION[task]["parameter_name"]
         parameters[param_name] = encoded_task
 
@@ -136,7 +175,7 @@ def _update_cssc_workflow(cmd, registry, schedule_cron_expression, resource_grou
     acr_tasks_models = get_acr_tasks_models(cmd.cli_ctx)
     for task in task_list:
         deployed_task = task.step.encoded_task_content
-        extension_task = _create_encoded_task(CONTINUOUSPATCH_TASK_DEFINITION[task.name]["template_file"])
+        extension_task = create_encoded_task(CONTINUOUSPATCH_TASK_DEFINITION[task.name]["template_file"])
         if deployed_task != extension_task:
             logger.debug(f"Task {task.name} is different from the extension task, updating the task")
             _update_task_yaml(acr_task_client, acr_tasks_models, registry, resource_group, task, extension_task)
@@ -207,7 +246,13 @@ def list_continuous_patch_v1(cmd, registry):
     return filtered_cssc_tasks
 
 
-def acr_cssc_dry_run(cmd, registry, config_file_path, is_create=True, remove_internal_statements=True):
+def acr_cssc_dry_run(
+        cmd,
+        registry,
+        config_file_path,
+        is_create=True,
+        remove_internal_statements=True,
+        network_bypass_enabled=False):
     logger.debug(f"Entering acr_cssc_dry_run with parameters: {registry} {config_file_path}")
     cssc_tasks_exists, _ = check_continuous_task_exists(cmd, registry)
 
@@ -280,10 +325,19 @@ def acr_cssc_dry_run(cmd, registry, config_file_path, is_create=True, remove_int
             agent_pool_name=None,
             log_template=None
         )
-        queued = LongRunningOperation(cmd.cli_ctx, start_msg=WORKFLOW_VALIDATION_MESSAGE)(acr_registries_task_client.begin_schedule_run(
-            resource_group_name=resource_group_name,
-            registry_name=registry.name,
-            run_request=request))
+        try:
+            queued = LongRunningOperation(
+                cmd.cli_ctx,
+                start_msg=WORKFLOW_VALIDATION_MESSAGE)(
+                    acr_registries_task_client.begin_schedule_run(
+                        resource_group_name=resource_group_name,
+                        registry_name=registry.name,
+                        run_request=request))
+        except HttpResponseError as error:
+            raise_for_quick_run_failure(
+                error,
+                bypass_enabled=network_bypass_enabled,
+                tasks_created=not is_create)
         run_id = queued.run_id
         logger.info("Performing dry-run check for filter policy using acr task run id: %s", run_id)
         return WorkflowTaskStatus.remove_internal_acr_statements(
@@ -399,19 +453,6 @@ def _trigger_task_run(cmd, registry, resource_group, task_name):
             request))
     run_id = queued_run.run_id
     print(f"Queued {CONTINUOUS_PATCHING_WORKFLOW_NAME} workflow task '{task_name}' with run ID: {run_id}. Use 'az acr task logs --registry {registry.name} --run-id {run_id}' to view the logs.")
-
-
-def _create_encoded_task(task_file):
-    # this is a bit of a hack, but we need to fix the path to the task's yaml,
-    # relative paths don't work because we don't control where the az cli is running from
-    templates_path = os.path.dirname(
-        os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "../templates/"))
-
-    with open(os.path.join(templates_path, task_file), "rb") as f:
-        base64_content = base64.b64encode(f.read())
-        return base64_content.decode('utf-8')
 
 
 def _update_task_yaml(acr_task_client, acr_tasks_models, registry, resource_group_name, task, encoded_task):

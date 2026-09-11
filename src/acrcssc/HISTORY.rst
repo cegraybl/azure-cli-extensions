@@ -3,6 +3,11 @@
 Release History
 ===============
 
+1.0.0b9
+++++++++
+* Add system-identity task authentication and role assignments for network-restricted registries.
+* Add explicit network-bypass enablement and idempotent repair for existing workflows.
+
 1.0.0b8
 ++++++++
 * Restore task operations compatibility with current Azure CLI versions.
